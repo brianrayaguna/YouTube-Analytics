@@ -271,6 +271,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
       <VideoDownloader
         videoUrl={url}
         videoTitle={video.title}
+        onToast={onToast}
         isOpen={showDownloader}
         onClose={() => setShowDownloader(false)}
       />
