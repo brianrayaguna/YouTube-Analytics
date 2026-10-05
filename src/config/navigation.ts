@@ -61,8 +61,5 @@ export const ALL_NAV_ITEMS = NAV_SECTIONS.flatMap(s => s.items);
 
 export const getNavItem = (mode: AnalysisMode) => ALL_NAV_ITEMS.find(i => i.mode === mode);
 
-/** Item di sidebar mini (desktop sempit) */
-export const MINI_NAV_MODES: AnalysisMode[] = ['dashboard', 'trending', 'insights', 'title_score', 'saved', 'downloader'];
-
 /** Item di bottom navigation mobile (sisanya lewat tombol "Lainnya") */
 export const BOTTOM_NAV_MODES: AnalysisMode[] = ['dashboard', 'trending', 'insights', 'saved'];
