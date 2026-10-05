@@ -373,7 +373,7 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
       '',
       pdfText(r.title) + (r.isOutlier ? '  [OUTLIER]' : ''),
       `${r.type}\n${r.duration}`,
-      `${pdfText(formatDateId(r.publishedAt))}\n${pdfText(`${r.uploadDay} ${r.uploadHour}`)}`,
+      `${pdfText(formatDateId(r.publishedAt))}\n${pdfText(`${r.uploadDay} ${r.uploadTime}`)}`,
       formatFullNumber(r.views),
       r.likes === null ? 'tersembunyi' : formatFullNumber(r.likes),
       r.comments === null ? 'nonaktif' : formatFullNumber(r.comments),

@@ -45,7 +45,27 @@ export interface Slot extends SlotStats {
   span: number;
 }
 
-export type SchedulePoint = { day: number; hour: number; logPerf: number; views: number };
+export type SchedulePoint = {
+  day: number;
+  hour: number;
+  logPerf: number;
+  views: number;
+  /** Video asal (tidak ada di data uji sintetis) */
+  id?: string;
+  /** Rasio jangkauan asli (tanpa batas 0,2×–5×) */
+  reach?: number;
+};
+
+/** Rentang waktu yang dicakup sebuah slot/kelompok (untuk memfilter daftar video). */
+export interface SlotMatch {
+  day?: number;
+  /** Jam awal (inklusif) dan akhir (eksklusif); 0–24 */
+  from: number;
+  to: number;
+}
+
+export const matchesSlot = (m: SlotMatch, day: number, hour: number) =>
+  (m.day === undefined || m.day === day) && hour >= m.from && hour < m.to;
 
 export interface ScheduleAnalysis {
   total: number;
@@ -104,6 +124,8 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
     const date = new Date(v.publishedAt);
     if (Number.isNaN(date.getTime())) return;
     points.push({
+      id: v.id,
+      reach: v.metrics.reachRatio,
       day: date.getDay(),
       hour: date.getHours(),
       logPerf: Math.max(-LOG_CLIP, Math.min(LOG_CLIP, Math.log10(Math.max(v.metrics.reachRatio, 1e-6)))),
@@ -182,6 +204,8 @@ export interface GroupRow extends SlotStats {
   rankable: boolean;
   /** Urutan kronologis (Senin → Minggu, 00.00 → 23.00) */
   order: number;
+  /** Rentang waktu kelompok ini */
+  match: SlotMatch;
 }
 
 const dayIndex = (d: number) => DAY_ORDER.indexOf(d);
@@ -205,31 +229,31 @@ export const scheduleRecommendation = (a: Pick<ScheduleAnalysis, 'best'>): strin
  * sampel terlalu sedikit ditaruh di bawah.
  */
 export const groupSchedule = (points: SchedulePoint[], grouping: ScheduleGrouping): GroupRow[] => {
-  const groups = new Map<string, { label: string; order: number; pts: SchedulePoint[] }>();
-  const add = (key: string, label: string, order: number, p: SchedulePoint) => {
-    const g = groups.get(key) ?? { label, order, pts: [] };
+  const groups = new Map<string, { label: string; order: number; match: SlotMatch; pts: SchedulePoint[] }>();
+  const add = (key: string, label: string, order: number, p: SchedulePoint, match: SlotMatch) => {
+    const g = groups.get(key) ?? { label, order, match, pts: [] };
     g.pts.push(p);
     groups.set(key, g);
   };
   points.forEach(p => {
-    if (grouping === 'day') add(`d${p.day}`, DAYS[p.day], dayIndex(p.day), p);
-    else if (grouping === 'hour') add(`h${p.hour}`, `${formatHour(p.hour)}–${formatHour(p.hour + 1)}`, p.hour, p);
+    if (grouping === 'day') add(`d${p.day}`, DAYS[p.day], dayIndex(p.day), p, { day: p.day, from: 0, to: 24 });
+    else if (grouping === 'hour') add(`h${p.hour}`, `${formatHour(p.hour)}–${formatHour(p.hour + 1)}`, p.hour, p, { from: p.hour, to: p.hour + 1 });
     else if (grouping === 'block') {
       const start = p.hour - (p.hour % BLOCK_HOURS);
-      add(`b${start}`, formatSlotTime({ hour: start, span: BLOCK_HOURS }), start, p);
+      add(`b${start}`, formatSlotTime({ hour: start, span: BLOCK_HOURS }), start, p, { from: start, to: start + BLOCK_HOURS });
     } else if (grouping === 'daypart') {
       const i = DAYPARTS.findIndex(([, from, to]) => p.hour >= from && p.hour < to);
       const [label, from, to] = DAYPARTS[i];
-      add(`p${i}`, `${label} (${formatHour(from)}–${formatHour(to)})`, i, p);
+      add(`p${i}`, `${label} (${formatHour(from)}–${formatHour(to)})`, i, p, { from, to });
     } else {
-      add(`d${p.day}h${p.hour}`, `${DAYS[p.day]}, ${formatHour(p.hour)}`, dayIndex(p.day) * 24 + p.hour, p);
+      add(`d${p.day}h${p.hour}`, `${DAYS[p.day]}, ${formatHour(p.hour)}`, dayIndex(p.day) * 24 + p.hour, p, { day: p.day, from: p.hour, to: p.hour + 1 });
     }
   });
 
   return Array.from(groups.entries())
     .map(([key, g]) => {
       const stats = summarize(g.pts);
-      return { key, label: g.label, order: g.order, rankable: stats.count >= MIN_SLOT_UPLOADS, ...stats };
+      return { key, label: g.label, order: g.order, match: g.match, rankable: stats.count >= MIN_SLOT_UPLOADS, ...stats };
     })
     .sort((a, b) => Number(b.rankable) - Number(a.rankable) || b.performance - a.performance || a.order - b.order);
 };

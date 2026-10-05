@@ -119,3 +119,23 @@ describe('schedule grouping', () => {
     expect(groupSchedule([], 'day')).toEqual([]);
   });
 });
+
+describe('slot matching & time formatting', () => {
+  it('matches day, hour range and whole-day slots', async () => {
+    const { matchesSlot, groupSchedule } = await import('../lib/schedule');
+    expect(matchesSlot({ day: 4, from: 18, to: 21 }, 4, 19)).toBe(true);
+    expect(matchesSlot({ day: 4, from: 18, to: 21 }, 4, 21)).toBe(false);
+    expect(matchesSlot({ day: 4, from: 18, to: 21 }, 3, 19)).toBe(false);
+    expect(matchesSlot({ from: 0, to: 24 }, 0, 23)).toBe(true);
+    const pts = [{ day: 2, hour: 7, logPerf: 0, views: 1 }];
+    expect(groupSchedule(pts, 'day')[0].match).toEqual({ day: 2, from: 0, to: 24 });
+    expect(groupSchedule(pts, 'daypart')[0].match).toEqual({ from: 5, to: 11 });
+    expect(groupSchedule(pts, 'dayhour')[0].match).toEqual({ day: 2, from: 7, to: 8 });
+  });
+  it('formats local upload time', async () => {
+    const { formatTime, formatDateTimeLong } = await import('../lib/format');
+    const d = new Date(2026, 9, 5, 19, 7);
+    expect(formatTime(d)).toBe('19.07');
+    expect(formatDateTimeLong(d)).toMatch(/Senin, 5 Oktober 2026 pukul 19\.07/);
+  });
+});

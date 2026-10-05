@@ -15,7 +15,7 @@ import { Eye, Users, Activity, Flame, Upload, Clapperboard, CalendarX2, Info, Tr
 import { AnalyzedData, VideoItem } from '../types';
 import { PageHeader, StatCard, SectionCard, StudioTabs, EmptyState } from './common';
 import PeriodPicker from './PeriodPicker';
-import { formatNumber, formatFullNumber, formatDate, median } from '../lib/format';
+import { formatNumber, formatFullNumber, formatDate, formatDateWithDay, formatTime, formatDateTimeLong, median } from '../lib/format';
 import {
   PeriodId,
   CustomPeriod,
@@ -404,7 +404,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview }) => {
                       <th className="px-2 py-2 text-right font-normal">Views</th>
                       <th className="px-2 py-2 text-right font-normal">Likes</th>
                       <th className="px-2 py-2 text-right font-normal">ER</th>
-                      <th className="px-4 py-2 text-right font-normal sm:pr-6">Tanggal</th>
+                      <th className="px-4 py-2 text-right font-normal sm:pr-6">Diupload</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -427,7 +427,10 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview }) => {
                         <td className="px-2 py-2 text-right font-medium tabular-nums">{formatNumber(v.viewCountRaw)}</td>
                         <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">{formatNumber(v.likeCountRaw)}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{v.engagementRate}%</td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-muted-foreground sm:pr-6">{formatDate(v.publishedAt)}</td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right text-muted-foreground sm:pr-6" title={formatDateTimeLong(v.publishedAt)}>
+                          {formatDateWithDay(v.publishedAt)}
+                          <span className="block text-xs">pukul {formatTime(v.publishedAt)}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

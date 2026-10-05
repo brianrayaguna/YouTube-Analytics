@@ -46,6 +46,21 @@ export const timeAgo = (dateInput: string | number | Date): string => {
 export const formatDate = (dateInput: string | number | Date): string =>
   new Date(dateInput).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 
+/** Jam:menit lokal, mis. "19.42" */
+export const formatTime = (dateInput: string | number | Date): string =>
+  new Date(dateInput).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(':', '.');
+
+/** "Sen, 5 Okt 2026" */
+export const formatDateWithDay = (dateInput: string | number | Date): string =>
+  new Date(dateInput).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+/** "Senin, 5 Oktober 2026 pukul 19.42" (zona waktu lokal) */
+export const formatDateTimeLong = (dateInput: string | number | Date): string => {
+  const d = new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} pukul ${formatTime(d)}`;
+};
+
 export const median = (values: number[]): number => {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);

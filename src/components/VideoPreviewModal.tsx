@@ -19,7 +19,7 @@ import { VideoItem, ShowToast } from '../types';
 import VideoDownloader from './VideoDownloader';
 import { ChannelAvatar } from './VideoCard';
 import { copyToClipboard, downloadThumbnail } from '../services/exportService';
-import { formatFullNumber, formatDate } from '../lib/format';
+import { formatFullNumber, formatDateWithDay, formatTime, formatDateTimeLong } from '../lib/format';
 
 interface VideoPreviewModalProps {
   video: VideoItem | null;
@@ -214,7 +214,9 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
                   >
                     <p className="font-medium text-foreground">
                       {formatFullNumber(video.viewCountRaw)} x ditonton
-                      <span className="ml-2">{formatDate(video.publishedAt)}</span>
+                      <span className="ml-2" title={formatDateTimeLong(video.publishedAt)}>
+                        {formatDateWithDay(video.publishedAt)} • {formatTime(video.publishedAt)}
+                      </span>
                       {video.tags.slice(0, 3).map(tag => (
                         <span key={tag} className="ml-2 text-primary">#{tag.replace(/\s+/g, '')}</span>
                       ))}

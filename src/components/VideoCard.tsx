@@ -11,6 +11,7 @@ import {
 import { copyToClipboard, downloadThumbnail } from '../services/exportService';
 import { downloadVideo } from '../services/videoDownload';
 import { isLocalDownloaderEnabled } from '../services/localDownloader';
+import { formatDateTimeLong } from '../lib/format';
 import { cn } from '@/lib/utils';
 
 interface VideoCardProps {
@@ -279,7 +280,10 @@ const VideoCard: React.FC<VideoCardProps> = ({
             {video.channelTitle}
           </p>
           <p className="text-sm text-muted-foreground">
-            {video.views} x ditonton <span aria-hidden="true">•</span> {video.publishedTimeAgo}
+            {video.views} x ditonton <span aria-hidden="true">•</span>{' '}
+            <time dateTime={video.publishedAt} title={`Diupload ${formatDateTimeLong(video.publishedAt)}`}>
+              {video.publishedTimeAgo}
+            </time>
           </p>
           {badges}
           <div className="absolute -right-2 -top-1">{menu}</div>
