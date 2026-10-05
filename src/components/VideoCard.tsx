@@ -9,7 +9,8 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { copyToClipboard, downloadThumbnail } from '../services/exportService';
-import { openVideoDownload } from '../constants/downloaders';
+import { downloadVideo } from '../services/videoDownload';
+import { isLocalDownloaderEnabled } from '../services/localDownloader';
 import { cn } from '@/lib/utils';
 
 interface VideoCardProps {
@@ -130,8 +131,8 @@ const VideoCard: React.FC<VideoCardProps> = ({
         <DropdownMenuItem className="h-9 gap-4 rounded-none px-4 text-sm" onSelect={handleThumb}>
           <ImageDown className="h-5 w-5" strokeWidth={1.75} /> Unduh thumbnail
         </DropdownMenuItem>
-        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4 text-sm" onSelect={() => openVideoDownload(video.id)}>
-          <Download className="h-5 w-5" strokeWidth={1.75} /> Unduh video (Cobalt)
+        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4 text-sm" onSelect={() => downloadVideo(video.id, video.title, onToast)}>
+          <Download className="h-5 w-5" strokeWidth={1.75} /> {isLocalDownloaderEnabled() ? 'Unduh ke perangkat' : 'Unduh video (Cobalt)'}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="h-9 gap-4 rounded-none px-4 text-sm"
