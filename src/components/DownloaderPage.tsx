@@ -34,6 +34,9 @@ import {
   isJobActive,
   formatBytes,
   formatEta,
+  codecLabel,
+  isServerOutdated,
+  MIN_SERVER_VERSION,
   DEFAULT_LOCAL_URL,
   LocalFormat,
   LocalQuality,
@@ -51,9 +54,9 @@ interface DownloaderPageProps {
 type Tab = 'local' | 'online';
 
 const QUALITY_OPTIONS: Array<{ value: LocalQuality; label: string }> = [
-  { value: 'best', label: 'Terbaik' },
-  { value: '2160', label: '4K (2160p)' },
-  { value: '1440', label: '1440p' },
+  { value: 'best', label: 'Terbaik (H.264, s.d. 1080p)' },
+  { value: '2160', label: '4K 2160p (dikonversi, lama)' },
+  { value: '1440', label: '1440p (dikonversi, lama)' },
   { value: '1080', label: '1080p' },
   { value: '720', label: '720p' },
   { value: '480', label: '480p' },
@@ -72,6 +75,7 @@ const STATUS_LABEL: Record<LocalJob['status'], string> = {
   queued: 'Dalam antrean',
   downloading: 'Mengunduh',
   processing: 'Memproses',
+  converting: 'Mengonversi ke H.264',
   done: 'Selesai',
   error: 'Gagal',
   canceled: 'Dibatalkan',
@@ -178,20 +182,33 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
             {job.format}
             {job.format === 'mp4' && job.quality !== 'best' ? ` ${job.quality}p` : ''}
           </span>
+          {job.status === 'done' && codecLabel(job) && (
+            <span
+              className="rounded-sm bg-success/15 px-1.5 py-px text-[11px] font-medium text-success"
+              title={job.conversion ? 'Dikonversi otomatis agar bisa diputar di semua pemutar' : 'Codec yang kompatibel dengan semua pemutar'}
+            >
+              {codecLabel(job)}
+              {job.conversion ? ' • dikonversi' : ''}
+            </span>
+          )}
           <span
             className={cn('min-w-0 text-xs', job.status === 'error' ? 'line-clamp-2 text-destructive' : 'text-muted-foreground')}
             title={job.error ?? undefined}
           >
             {job.status === 'error' ? job.error : STATUS_LABEL[job.status]}
-            {job.status === 'downloading' && job.percent !== null ? ` ${Math.round(pct)}%` : ''}
+            {(job.status === 'downloading' || job.status === 'converting') && job.percent !== null ? ` ${Math.round(pct)}%` : ''}
             {detail && ` • ${detail}`}
           </span>
         </div>
         {active && (
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary">
             <div
-              className={cn('h-full rounded-full bg-youtube-red transition-[width] duration-500', job.status !== 'downloading' && 'animate-pulse')}
-              style={{ width: `${job.status === 'downloading' ? pct : 100}%` }}
+              className={cn(
+                'h-full rounded-full transition-[width] duration-500',
+                job.status === 'converting' ? 'bg-primary' : 'bg-youtube-red',
+                job.status !== 'downloading' && job.status !== 'converting' && 'animate-pulse'
+              )}
+              style={{ width: `${job.status === 'downloading' || job.status === 'converting' ? pct : 100}%` }}
             />
           </div>
         )}
@@ -292,7 +309,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
             </p>
             {connected ? (
               <p className="mt-0.5 text-sm text-muted-foreground">
-                yt-dlp {health.ytdlp ?? '✖'} • ffmpeg {hasFfmpeg ? '✓' : '✖ (MP3 & >720p tidak tersedia)'}
+                yt-dlp {health.ytdlp ?? '✖'} • ffmpeg {hasFfmpeg ? '✓' : '✖ (MP3, >720p & konversi H.264 tidak tersedia)'} • server v{health.version}
                 <span className="block truncate" title={health.downloadDir}>
                   Folder: {health.downloadDir}
                 </span>
@@ -315,6 +332,24 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
           </button>
         </div>
       </div>
+
+      {connected && isServerOutdated(health.version) && (
+        <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center">
+          <CircleAlert className="h-5 w-5 shrink-0 text-warning" />
+          <p className="flex-1 text-sm text-foreground">
+            Server lokal Anda versi lama ({health.version ?? '?'}). Versi itu bisa menyimpan MP4 ber-codec AV1/VP9 yang{' '}
+            <b className="font-medium">tidak bisa dibuka</b> di banyak pemutar. Unduh server v{MIN_SERVER_VERSION}, hentikan server lama (Ctrl+C), lalu jalankan
+            yang baru.
+          </p>
+          <button
+            type="button"
+            className="yt-pill-primary shrink-0"
+            onClick={() => downloadBlob(new Blob([serverSource], { type: 'text/javascript' }), SERVER_FILENAME)}
+          >
+            <FileCode2 className="h-4 w-4" /> Unduh server terbaru
+          </button>
+        </div>
+      )}
 
       {ready && (
         <>

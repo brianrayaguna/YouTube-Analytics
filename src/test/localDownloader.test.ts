@@ -9,6 +9,9 @@ import {
   parseAllowedOrigins,
   summarizeInfo,
   uniqueTarget,
+  formatSortFor,
+  compatibilityPlan,
+  buildTranscodeArgs,
 } from '../../local-downloader/server.mjs';
 
 describe('local downloader: validation', () => {
@@ -45,15 +48,25 @@ describe('local downloader: yt-dlp arguments', () => {
     expect(args[args.indexOf('-P') + 1]).toBe('/dl/.tmp/1');
   });
 
-  it('merges best video+audio into mp4 when ffmpeg exists', () => {
+  it('selects video-only + audio-only streams sorted for H.264/AAC (playable MP4)', () => {
     const args = buildDownloadArgs({ ...base, format: 'mp4', quality: '1080', hasFfmpeg: true });
-    expect(args[args.indexOf('-f') + 1]).toContain('[height<=1080]');
+    expect(args[args.indexOf('-f') + 1]).toBe('bv+ba/b');
+    expect(args[args.indexOf('-S') + 1]).toBe('vcodec:h264,res:1080,acodec:aac');
     expect(args).toContain('--merge-output-format');
+    // Regresi: format lama "bv*[ext=mp4]" memilih AV1 di dalam MP4
+    expect(args.join(' ')).not.toContain('bv*');
   });
 
-  it('falls back to progressive formats without ffmpeg', () => {
+  it('prefers H.264 first, resolution first only above 1080p', () => {
+    expect(formatSortFor('best')).toBe('vcodec:h264,res,acodec:aac');
+    expect(formatSortFor('720')).toBe('vcodec:h264,res:720,acodec:aac');
+    expect(formatSortFor('2160')).toBe('res:2160,vcodec:h264,acodec:aac');
+    expect(formatSortFor('evil')).toBe('vcodec:h264,res,acodec:aac');
+  });
+
+  it('falls back to progressive H.264 formats without ffmpeg', () => {
     const args = buildDownloadArgs({ ...base, format: 'mp4', quality: '720', hasFfmpeg: false });
-    expect(args[args.indexOf('-f') + 1]).toBe('b[height<=720][ext=mp4]/b[height<=720]/b');
+    expect(args[args.indexOf('-f') + 1]).toBe('b[height<=720][vcodec^=avc1]/b[vcodec^=avc1]/b[height<=720]/b');
     expect(args).not.toContain('--merge-output-format');
   });
 
@@ -65,6 +78,28 @@ describe('local downloader: yt-dlp arguments', () => {
   it('ignores unknown quality values', () => {
     const args = buildDownloadArgs({ ...base, format: 'mp4', quality: '9999; rm', hasFfmpeg: true });
     expect(args[args.indexOf('-f') + 1]).not.toContain('height');
+  });
+});
+
+describe('local downloader: playable MP4', () => {
+  it('keeps H.264 4:2:0 + AAC untouched', () => {
+    expect(compatibilityPlan({ videoCodec: 'h264', pixFmt: 'yuv420p', audioCodec: 'aac' })).toBe('none');
+  });
+  it('re-encodes AV1/VP9 and non-4:2:0 H.264 video', () => {
+    expect(compatibilityPlan({ videoCodec: 'av1', pixFmt: 'yuv420p', audioCodec: 'aac' })).toBe('full');
+    expect(compatibilityPlan({ videoCodec: 'vp9', pixFmt: 'yuv420p', audioCodec: 'opus' })).toBe('full');
+    expect(compatibilityPlan({ videoCodec: 'h264', pixFmt: 'yuv444p', audioCodec: 'aac' })).toBe('full');
+  });
+  it('only converts audio when video is already H.264', () => {
+    expect(compatibilityPlan({ videoCodec: 'h264', pixFmt: 'yuv420p', audioCodec: 'opus' })).toBe('audio');
+  });
+  it('builds ffmpeg arguments', () => {
+    const full = buildTranscodeArgs('in.webm', 'out.mp4', 'full', 'opus');
+    expect(full).toEqual(expect.arrayContaining(['libx264', 'yuv420p', 'aac', '+faststart']));
+    const audio = buildTranscodeArgs('in.mp4', 'out.mp4', 'audio', 'opus');
+    expect(audio[audio.indexOf('-c:v') + 1]).toBe('copy');
+    expect(audio[audio.indexOf('-c:a') + 1]).toBe('aac');
+    expect(audio[audio.length - 1]).toBe('out.mp4');
   });
 });
 

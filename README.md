@@ -81,6 +81,11 @@ Browser tidak boleh menjalankan program di komputer, jadi aplikasi memakai serve
 
 File tersimpan di `~/Downloads/YT Analyzer` (tidak pernah menimpa file yang sudah ada).
 
+**MP4 selalu bisa diputar.** YouTube menyajikan video terbaik dalam AV1/VP9 + Opus yang tidak bisa dibuka di banyak
+pemutar (Windows Media Player/Film & TV, QuickTime, TV, editor video). Server memilih **H.264 + AAC** (tersedia hingga
+1080p) dan memeriksa hasil dengan `ffprobe`; bila codec belum kompatibel (mis. 1440p/4K yang hanya ada dalam VP9/AV1),
+file otomatis dikonversi ke H.264/AAC dengan ffmpeg. Pengguna server v1.0.0 akan diminta memperbarui ke v1.1.0.
+
 | Variabel | Default | Keterangan |
 | --- | --- | --- |
 | `PORT` | `17890` | Port lokal (ubah juga di *Pengaturan lanjutan* halaman Downloader) |

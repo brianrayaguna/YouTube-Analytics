@@ -38,6 +38,7 @@ export const downloadVideoLocally = async (
     const done = await waitForLocalJob(job.id, j => {
       if (j.status === 'queued') onToast(`Antre di mesin lokal: ${short}`, 'loading');
       else if (j.status === 'processing') onToast(`Memproses ${format.toUpperCase()}… ${short}`, 'loading');
+      else if (j.status === 'converting') onToast(`Mengonversi ke H.264 agar bisa diputar… ${Math.round(j.percent ?? 0)}%`, 'loading');
       else if (j.percent !== null) onToast(`Mengunduh ${Math.round(j.percent)}% — ${short}`, 'loading');
     });
     if (done.status === 'done') onToast(`Tersimpan di perangkat: ${done.filename}`, 'success');
