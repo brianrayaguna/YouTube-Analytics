@@ -242,7 +242,7 @@ const YouTubeAnalyzer: React.FC = () => {
   }, [apiKey, showToast]);
 
   const handleAnalyze = useCallback(
-    async (searchQuery: string) => {
+    async (searchQuery: string, limitOverride?: FetchLimit) => {
       const q = searchQuery.trim();
       if (!q || !ensureApiKey()) return;
       setLoading(true);
@@ -251,7 +251,7 @@ const YouTubeAnalyzer: React.FC = () => {
       setMode(m => (getNavItem(m)?.needsData ? m : 'dashboard'));
       scrollTop();
       try {
-        const result = await fetchYouTubeData(apiKey, q, fetchLimit);
+        const result = await fetchYouTubeData(apiKey, q, limitOverride ?? fetchLimit);
         setData(result);
         setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
         addToSearchHistory({ query: q, type: classifyQuery(q), resultCount: result.videos.length, title: result.channelTitle });
@@ -688,7 +688,22 @@ const YouTubeAnalyzer: React.FC = () => {
       case 'title_score':
         return data?.videos.length ? <TitleScoreAnalyzer videos={data.videos} onPreview={handlePreview} /> : needData(Gauge, 'Skor Judul & Thumbnail');
       case 'schedule':
-        return data?.videos.length ? <UploadScheduleAnalyzer videos={data.videos} /> : needData(CalendarClock, 'Jadwal Upload');
+        return data?.videos.length ? (
+          <UploadScheduleAnalyzer
+            data={data}
+            fetchLimit={fetchLimit}
+            onFetchMore={
+              data.query && (data.source === 'channel' || data.source === 'playlist')
+                ? limit => {
+                    setFetchLimit(limit);
+                    handleAnalyze(data.query!, limit);
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          needData(CalendarClock, 'Jadwal Upload')
+        );
       case 'content_gap':
         return data?.videos.length ? (
           <ContentGapAnalyzer channelVideos={data.videos} channelTitle={data.channelTitle} apiKey={apiKey} onToast={showToast} onRequireApiKey={() => setSettingsOpen(true)} />
