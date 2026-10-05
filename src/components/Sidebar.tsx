@@ -1,6 +1,6 @@
 import React from 'react';
 import { AnalysisMode } from '../types';
-import { NAV_SECTIONS, MINI_NAV_MODES, ALL_NAV_ITEMS, NavItem } from '../config/navigation';
+import { NAV_SECTIONS, NavItem } from '../config/navigation';
 import { cn } from '@/lib/utils';
 
 interface NavListProps {
@@ -71,7 +71,7 @@ interface SidebarProps extends NavListProps {
   expanded: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, savedCount, hasData }) => {
+const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, savedCount = 0, hasData }) => {
   if (expanded) {
     return (
       <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto bg-background md:block">
@@ -80,31 +80,48 @@ const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, sa
     );
   }
 
-  const miniItems = MINI_NAV_MODES.map(m => ALL_NAV_ITEMS.find(i => i.mode === m)!).filter(Boolean);
+  // Sidebar mini memakai daftar & urutan yang sama dengan sidebar penuh (hanya tampilannya yang ringkas)
   return (
-    <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto bg-background px-1 pt-1 no-scrollbar md:block">
-      {miniItems.map(item => {
-        const Icon = item.icon;
-        const active = currentMode === item.mode;
-        return (
-          <button
-            key={item.mode}
-            type="button"
-            onClick={() => onNavigate(item.mode)}
-            aria-current={active ? 'page' : undefined}
-            title={item.label}
-            className={cn(
-              'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3.5 pt-4 transition-colors hover:bg-secondary',
-              active && 'bg-secondary/60'
-            )}
-          >
-            <Icon className="h-6 w-6" strokeWidth={active ? 2.25 : 1.75} />
-            <span className={cn('max-w-full truncate px-1 text-[10px] leading-none', active && 'font-medium')}>
-              {item.shortLabel}
-            </span>
-          </button>
-        );
-      })}
+    <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto bg-background px-1 pb-4 pt-1 no-scrollbar md:block">
+      <nav aria-label="Navigasi utama">
+        {NAV_SECTIONS.map((section, idx) => (
+          <div key={section.title ?? idx} className={cn(idx > 0 && 'mt-1 border-t border-border pt-1')}>
+            {section.items.map(item => {
+              const Icon = item.icon;
+              const active = currentMode === item.mode;
+              const needsData = item.needsData && !hasData;
+              return (
+                <button
+                  key={item.mode}
+                  type="button"
+                  onClick={() => onNavigate(item.mode)}
+                  aria-current={active ? 'page' : undefined}
+                  aria-label={item.label}
+                  title={needsData ? `${item.label} (perlu analisis channel dulu)` : item.label}
+                  className={cn(
+                    'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3 pt-3.5 text-foreground transition-colors',
+                    active ? 'bg-secondary hover:bg-accent' : 'hover:bg-secondary'
+                  )}
+                >
+                  <span className="relative">
+                    <Icon className="h-6 w-6" strokeWidth={active ? 2.25 : 1.75} />
+                    {item.mode === 'saved' && savedCount ? (
+                      <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-youtube-red px-1 text-center text-[10px] font-medium leading-4 text-white">
+                        {savedCount > 99 ? '99+' : savedCount}
+                      </span>
+                    ) : needsData ? (
+                      <span className="absolute -right-1 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+                    ) : null}
+                  </span>
+                  <span className={cn('max-w-full truncate px-1 text-[10px] leading-none', active && 'font-medium')}>
+                    {item.shortLabel}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
     </aside>
   );
 };
