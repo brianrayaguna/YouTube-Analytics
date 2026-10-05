@@ -25,12 +25,12 @@ thumbnail, dan nama file.
 
 | Format | Isi |
 | --- | --- |
-| **Excel (.xlsx)** | Sheet *Ringkasan* (channel, KPI, format, distribusi nilai, 10 teratas, tag), *Video* (thumbnail di dalam sel, hyperlink, angka terformat, warna nilai, filter, freeze pane, siap cetak), *Tag*, *Metodologi* |
-| **PDF** | Sampul + KPI, distribusi nilai, 10 teratas dengan thumbnail, daftar lengkap (landscape), metodologi |
-| **HTML** | Laporan satu file (thumbnail tersemat, Unicode penuh, mode gelap, siap dicetak ke PDF) |
-| **JSON** | Data terstruktur berversi (`yt-analyzer-report` v1): channel, ringkasan, skor & komponen per video, URL thumbnail semua ukuran (opsional base64) |
-| **CSV** | Tabel universal UTF-8 (BOM) untuk Excel/Sheets/BI |
-| **Paket lengkap (.zip)** | Semua format di atas + folder `thumbnails/` resolusi HD bernomor |
+| **Excel (.xlsx)** | Sheet *Ringkasan* (channel, KPI, format, distribusi nilai, 10 teratas, jadwal upload, tag), *Jadwal Upload* (rekomendasi, slot terbaik/terendah, performa per hari / bagian hari / blok 3 jam / jam, peta panas performa & jumlah upload), *Video* (thumbnail di dalam sel, hari & jam upload, hyperlink, angka terformat, warna nilai, filter, freeze pane, siap cetak), *Tag*, *Metodologi* |
+| **PDF** | Sampul + KPI, distribusi nilai, 10 teratas dengan thumbnail, halaman jadwal upload (peta panas, per hari/bagian hari/blok 3 jam, slot terbaik & terendah), daftar lengkap (landscape), metodologi |
+| **HTML** | Laporan satu file (thumbnail tersemat, jadwal upload dengan peta panas & tabel yang bisa dikelompokkan, Unicode penuh, mode gelap, siap dicetak ke PDF) |
+| **JSON** | Data terstruktur berversi (`yt-analyzer-report` v1): channel, ringkasan, `schedule` (kelompok hari/bagian hari/blok/jam, peta panas, slot terbaik), skor & komponen per video, hari/jam upload, URL thumbnail semua ukuran (opsional base64) |
+| **CSV** | Tabel universal UTF-8 (BOM): pilih *Data video* (termasuk hari, jam & bagian hari upload) atau *Jadwal upload* (performa per kelompok waktu + hari × jam) |
+| **Paket lengkap (.zip)** | Semua format di atas + CSV jadwal upload + folder `thumbnails/` resolusi HD bernomor |
 
 Lainnya: salin semua link, ZIP thumbnail, mode **Pilih** untuk aksi massal.
 

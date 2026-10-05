@@ -3,7 +3,7 @@
 // dihapus. Untuk Unicode penuh gunakan laporan HTML lalu cetak ke PDF.
 
 import type { jsPDF as JsPDF } from 'jspdf';
-import { Report, METHODOLOGY, GRADE_COLORS, APP_NAME, sourceLabel, formatDateId } from './reportModel';
+import { Report, METHODOLOGY, GRADE_COLORS, APP_NAME, sourceLabel, formatDateId, performanceRgb, ScheduleRow } from './reportModel';
 import { ThumbImage } from './thumbnails';
 import { formatNumber, formatFullNumber } from '../../lib/format';
 
@@ -202,6 +202,162 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
     },
   });
 
+  // ---------- Jadwal upload ----------
+  const sc = report.schedule;
+  doc.addPage('a4', 'portrait');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(...INK);
+  doc.text('Jadwal upload', M, 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...MUTED);
+  doc.text(
+    doc.splitTextToSize(
+      pdfText(`${formatFullNumber(sc.totalVideos)} video • waktu dalam zona ${sc.timeZone} (${sc.utcOffset}). Performa = views dibanding perkiraan views video seusia (1,0x = rata-rata).`),
+      pageW() - 2 * M
+    ),
+    M,
+    23.5
+  );
+  y = 30;
+  const schedKpis: Array<[string, string, string]> = [
+    ['Hari terbaik', sc.bestDay?.day ?? '-', sc.bestDay ? `${sc.bestDay.performance}x | ${sc.bestDay.uploads} upload` : 'data belum cukup'],
+    ['Jam terbaik', sc.bestHour?.hour ?? '-', sc.bestHour ? `${sc.bestHour.performance}x | ${sc.bestHour.uploads} upload` : 'data belum cukup'],
+    ['Slot 3 jam terbaik', sc.bestSlots[0] ? `${sc.bestSlots[0].day} ${sc.bestSlots[0].time}` : '-', sc.bestSlots[0] ? `${sc.bestSlots[0].performance}x | keyakinan ${sc.bestSlots[0].confidence}` : 'data belum cukup'],
+    ['Paling sering upload', sc.busiestDay?.day ?? '-', sc.busiestDay ? `${sc.busiestDay.uploads} upload` : ''],
+  ];
+  schedKpis.forEach((k, i) => {
+    const x = M + i * (boxW + gap);
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, boxW, boxH, 2.5, 2.5, 'S');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(pdfText(k[0]), x + 4, y + 6);
+    doc.setFontSize(k[1].length > 12 ? 10 : 14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BLUE);
+    doc.text(pdfText(k[1]), x + 4, y + 13.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...MUTED);
+    doc.text(pdfText(k[2]), x + 4, y + 18.5);
+  });
+  y += boxH + 6;
+  if (sc.recommendation) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const lines = doc.splitTextToSize(pdfText(sc.recommendation), pageW() - 2 * M - 8);
+    const h = lines.length * 4 + 6;
+    doc.setFillColor(230, 239, 251);
+    doc.roundedRect(M, y, pageW() - 2 * M, h, 2.5, 2.5, 'F');
+    doc.setTextColor(...INK);
+    doc.text(lines, M + 4, y + 5.5);
+    y += h + 6;
+  }
+
+  // Peta panas performa hari × jam
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...INK);
+  doc.text('Peta panas performa (hari x jam)', M, y);
+  y += 4;
+  const labelW = 16;
+  const cellW = (pageW() - 2 * M - labelW) / 24;
+  const cellH = 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(...MUTED);
+  for (let h = 0; h < 24; h += 3) doc.text(String(h).padStart(2, '0'), M + labelW + h * cellW + cellW / 2, y + 2.5, { align: 'center' });
+  y += 4;
+  sc.heatmap.days.forEach((day, di) => {
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text(pdfText(day), M, y + cellH / 2 + 1.2);
+    for (let h = 0; h < 24; h++) {
+      const p = sc.heatmap.performance[di][h];
+      doc.setFillColor(...performanceRgb(p));
+      doc.rect(M + labelW + h * cellW + 0.3, y + 0.3, cellW - 0.6, cellH - 0.6, 'F');
+      const n = sc.heatmap.uploads[di][h];
+      if (n) {
+        doc.setFontSize(5.5);
+        doc.setTextColor(...(p !== null && (p >= 2 || p <= 0.4) ? ([255, 255, 255] as RGB) : INK));
+        doc.text(String(n), M + labelW + h * cellW + cellW / 2, y + cellH / 2 + 1, { align: 'center' });
+      }
+    }
+    y += cellH;
+  });
+  doc.setFontSize(7);
+  doc.setTextColor(...MUTED);
+  doc.text('Angka di sel = jumlah upload. Biru = di atas rata-rata, merah = di bawah rata-rata, abu-abu = belum ada upload.', M, y + 4);
+  y += 10;
+
+  const perfCell = (data: { section: string; column: { index: number }; cell: { raw: unknown; styles: { fillColor: unknown; fontStyle: string } } }, col: number) => {
+    if (data.section === 'body' && data.column.index === col) {
+      const p = parseFloat(String(data.cell.raw));
+      if (!Number.isNaN(p)) {
+        data.cell.styles.fillColor = performanceRgb(p);
+        data.cell.styles.fontStyle = 'bold';
+      }
+    }
+  };
+  const groupTable = (title: string, list: ScheduleRow[], startY: number, half?: 'left' | 'right') => {
+    const width = half ? (pageW() - 2 * M - 6) / 2 : pageW() - 2 * M;
+    const left = half === 'right' ? M + width + 6 : M;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text(title, left, startY);
+    autoTable(doc, {
+      startY: startY + 2.5,
+      margin: { left, right: pageW() - left - width, bottom: 16 },
+      tableWidth: width,
+      head: [['Waktu', 'Upload', 'Performa', 'Median views', 'Keyakinan']],
+      body: list.map(g => [pdfText(g.label), String(g.uploads), `${g.performance.toFixed(1)}x`, formatNumber(g.medianViews), g.rank ? g.confidence : `${g.confidence}*`]),
+      theme: 'plain',
+      styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.2, valign: 'middle', textColor: INK, lineColor: LINE, lineWidth: { bottom: 0.2 } },
+      headStyles: { fillColor: INK, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'center' }, 3: { halign: 'right' }, 4: { halign: 'center' } },
+      didParseCell: data => perfCell(data as never, 2),
+    });
+    return (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? startY + 40;
+  };
+  const leftEnd = groupTable('Per hari', sc.groups.day, y, 'left');
+  const rightEnd = groupTable('Per bagian hari', sc.groups.daypart, y, 'right');
+  y = Math.max(leftEnd, rightEnd) + 8;
+
+  const slotRows = [
+    ...sc.bestSlots.map(sl => ['Terbaik', pdfText(`${sl.day}, ${sl.time}`), String(sl.uploads), `${sl.performance.toFixed(1)}x`, formatNumber(sl.medianViews), sl.confidence]),
+    ...sc.worstSlots.map(sl => ['Terendah', pdfText(`${sl.day}, ${sl.time}`), String(sl.uploads), `${sl.performance.toFixed(1)}x`, formatNumber(sl.medianViews), sl.confidence]),
+  ];
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...INK);
+  doc.text('Slot 3 jam terbaik & terendah', M, y);
+  autoTable(doc, {
+    startY: y + 2.5,
+    margin: { left: M, right: M, bottom: 16 },
+    head: [['', 'Slot', 'Upload', 'Performa', 'Median views', 'Keyakinan']],
+    body: slotRows.length ? slotRows : [['-', 'Data belum cukup (butuh minimal 2 upload per blok 3 jam)', '', '', '', '']],
+    theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 1.3, valign: 'middle', textColor: INK, lineColor: LINE, lineWidth: { bottom: 0.2 } },
+    headStyles: { fillColor: INK, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+    columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold' }, 2: { halign: 'right' }, 3: { halign: 'center' }, 4: { halign: 'right' }, 5: { halign: 'center' } },
+    didParseCell: data => perfCell(data as never, 3),
+  });
+  y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 30) + 8;
+  if (y > pageH() - 60) {
+    doc.addPage('a4', 'portrait');
+    y = 20;
+  }
+  groupTable('Per blok 3 jam', sc.groups.block, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...MUTED);
+  const noteY = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 5;
+  doc.text('* kurang dari 2 upload - belum bisa diperingkat. Tabel per jam lengkap tersedia di Excel, HTML, JSON, dan CSV jadwal.', M, noteY);
+
   // ---------- Daftar semua video (landscape) ----------
   doc.addPage('a4', 'landscape');
   doc.setFont('helvetica', 'bold');
@@ -217,7 +373,7 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
       '',
       pdfText(r.title) + (r.isOutlier ? '  [OUTLIER]' : ''),
       `${r.type}\n${r.duration}`,
-      formatDateId(r.publishedAt),
+      `${pdfText(formatDateId(r.publishedAt))}\n${pdfText(`${r.uploadDay} ${r.uploadHour}`)}`,
       formatFullNumber(r.views),
       r.likes === null ? 'tersembunyi' : formatFullNumber(r.likes),
       r.comments === null ? 'nonaktif' : formatFullNumber(r.comments),

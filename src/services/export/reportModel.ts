@@ -4,6 +4,19 @@ import { VideoItem, ChannelStats, AnalysisSource } from '../../types';
 import { calculateAllVideoScores, getGradeDistribution, Grade, SCORE_MODEL, VideoWithScores } from '../performanceScoreService';
 import { thumbnailUrl } from '../../lib/video';
 import { median } from '../../lib/format';
+import {
+  analyzeSchedule,
+  groupSchedule,
+  scheduleRecommendation,
+  daypartOf,
+  DAYS,
+  DAY_ORDER,
+  formatHour,
+  formatSlotTime,
+  ScheduleGrouping,
+  SlotConfidence,
+  Slot,
+} from '../../lib/schedule';
 
 export const APP_NAME = 'YT Analyzer Pro';
 export const REPORT_SCHEMA_VERSION = 1;
@@ -47,7 +60,49 @@ export interface ReportRow {
   description: string;
   thumbnailHd: boolean | null;
   thumbnails: { default: string; medium: string; high: string; standard: string; maxres: string };
+  /** Waktu upload dalam zona waktu lokal pembuat laporan */
+  uploadDay: string;
+  uploadHour: string;
+  uploadDaypart: string;
   scored: VideoWithScores;
+}
+
+export interface ScheduleRow {
+  label: string;
+  uploads: number;
+  /** Performa ter-shrink (1 = setara video seusia) */
+  performance: number;
+  medianViews: number;
+  avgViews: number;
+  confidence: SlotConfidence;
+  /** Peringkat performa (null bila upload < 2) */
+  rank: number | null;
+}
+
+export interface ScheduleSlotRow {
+  day: string;
+  time: string;
+  uploads: number;
+  performance: number;
+  medianViews: number;
+  confidence: SlotConfidence;
+}
+
+export interface ReportSchedule {
+  timeZone: string;
+  /** mis. "UTC+07:00" */
+  utcOffset: string;
+  totalVideos: number;
+  bestDay: { day: string; performance: number; uploads: number } | null;
+  bestHour: { hour: string; performance: number; uploads: number } | null;
+  busiestDay: { day: string; uploads: number } | null;
+  recommendation: string | null;
+  bestSlots: ScheduleSlotRow[];
+  worstSlots: ScheduleSlotRow[];
+  /** Dalam urutan kronologis (Senin → Minggu, 00.00 → 23.00) */
+  groups: Record<Exclude<ScheduleGrouping, 'dayhour'>, ScheduleRow[]>;
+  /** Peta panas hari × jam; baris mengikuti `days`, kolom jam 0–23 */
+  heatmap: { days: string[]; uploads: number[][]; performance: Array<Array<number | null>> };
 }
 
 export interface TagStat {
@@ -82,8 +137,64 @@ export interface ReportSummary {
 export interface Report {
   context: ExportContext;
   summary: ReportSummary;
+  schedule: ReportSchedule;
   rows: ReportRow[];
 }
+
+const utcOffsetLabel = (d: Date) => {
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+};
+
+const slotRow = (s: Slot): ScheduleSlotRow => ({
+  day: DAYS[s.day],
+  time: formatSlotTime(s),
+  uploads: s.count,
+  performance: Math.round(s.performance * 100) / 100,
+  medianViews: Math.round(s.medianViews),
+  confidence: s.confidence,
+});
+
+/** Ringkasan jadwal upload (logika sama dengan halaman Jadwal Upload). */
+export const buildScheduleSection = (videos: VideoItem[], generatedAt: Date): ReportSchedule => {
+  const a = analyzeSchedule(videos, generatedAt.getTime());
+  const group = (g: Exclude<ScheduleGrouping, 'dayhour'>): ScheduleRow[] => {
+    const ranked = groupSchedule(a.points, g);
+    let rank = 0;
+    return ranked
+      .map(r => ({
+        order: r.order,
+        label: r.label,
+        uploads: r.count,
+        performance: Math.round(r.performance * 100) / 100,
+        medianViews: Math.round(r.medianViews),
+        avgViews: Math.round(r.avgViews),
+        confidence: r.confidence,
+        rank: r.rankable ? ++rank : null,
+      }))
+      .sort((x, y) => x.order - y.order)
+      .map(({ order: _order, ...row }) => row);
+  };
+  return {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'lokal',
+    utcOffset: utcOffsetLabel(generatedAt),
+    totalVideos: a.total,
+    bestDay: a.bestDay ? { day: DAYS[a.bestDay.day], performance: Math.round(a.bestDay.performance * 100) / 100, uploads: a.bestDay.count } : null,
+    bestHour: a.bestHour ? { hour: formatHour(a.bestHour.hour), performance: Math.round(a.bestHour.performance * 100) / 100, uploads: a.bestHour.count } : null,
+    busiestDay: a.busiestDay ? { day: DAYS[a.busiestDay.day], uploads: a.busiestDay.count } : null,
+    recommendation: scheduleRecommendation(a),
+    bestSlots: a.best.map(slotRow),
+    worstSlots: a.worst.map(slotRow),
+    groups: { day: group('day'), daypart: group('daypart'), block: group('block'), hour: group('hour') },
+    heatmap: {
+      days: DAY_ORDER.map(d => DAYS[d]),
+      uploads: DAY_ORDER.map(d => a.cells[d].map(c => c.count)),
+      performance: DAY_ORDER.map(d => a.cells[d].map(c => (c.count ? Math.round(c.performance * 100) / 100 : null))),
+    },
+  };
+};
 
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 const avg = (nums: number[]) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0);
@@ -126,6 +237,12 @@ export const buildReport = (videos: VideoItem[], context: ExportContext): Report
       standard: thumbnailUrl(v.id, 'sd'),
       maxres: thumbnailUrl(v.id, 'maxres'),
     },
+    ...(() => {
+      const d = new Date(v.publishedAt);
+      return Number.isNaN(d.getTime())
+        ? { uploadDay: '-', uploadHour: '-', uploadDaypart: '-' }
+        : { uploadDay: DAYS[d.getDay()], uploadHour: formatHour(d.getHours()), uploadDaypart: daypartOf(d.getHours()) };
+    })(),
     scored: v,
   }));
 
@@ -181,7 +298,7 @@ export const buildReport = (videos: VideoItem[], context: ExportContext): Report
     formats: [fmt('Video'), fmt('Shorts')],
   };
 
-  return { context, summary, rows };
+  return { context, summary, schedule: buildScheduleSection(videos, context.generatedAt), rows };
 };
 
 export const METHODOLOGY: Array<[string, string]> = [
@@ -200,8 +317,21 @@ export const METHODOLOGY: Array<[string, string]> = [
   ],
   ['Nilai', `A ≥ ${SCORE_MODEL.grades.A} • B ≥ ${SCORE_MODEL.grades.B} • C ≥ ${SCORE_MODEL.grades.C} (≈ rata-rata) • D ≥ ${SCORE_MODEL.grades.D} • F < ${SCORE_MODEL.grades.D}`],
   ['Keyakinan', 'Rendah bila video < 2 hari atau views < 100; sedang bila pembanding < 8 video.'],
+  [
+    'Jadwal upload',
+    'Waktu upload memakai zona waktu perangkat pembuat laporan. Performa slot = rata-rata geometrik rasio jangkauan video di slot itu (dibatasi 0,2×–5× per video) yang ditarik ke 1,0× bila sampel sedikit. 1,0× = setara video seusia. Slot baru diperingkat bila ada ≥ 2 upload; keyakinan tinggi ≥ 5 upload, sedang ≥ 3.',
+  ],
   ['Catatan', 'Skor bersifat relatif terhadap video lain dalam ekspor ini, bukan nilai absolut YouTube. CTR & retensi asli hanya tersedia di YouTube Studio.'],
 ];
+
+/** Warna performa jadwal (RGB): biru bila > 1×, merah bila < 1×, makin pekat makin jauh dari rata-rata; abu-abu bila kosong. */
+export const performanceRgb = (p: number | null): [number, number, number] => {
+  if (p === null) return [242, 242, 242];
+  const strength = Math.min(1, Math.abs(Math.log10(Math.max(p, 1e-3))) / 0.6);
+  const alpha = p >= 1 ? 0.12 + strength * 0.88 : 0.12 + strength * 0.75;
+  const base = p >= 1 ? [6, 95, 212] : [255, 0, 0];
+  return base.map(c => Math.round(255 + (c - 255) * alpha)) as [number, number, number];
+};
 
 export const GRADE_COLORS: Record<Grade, string> = {
   A: '0B8043',

@@ -180,9 +180,25 @@ export interface GroupRow extends SlotStats {
   label: string;
   /** Boleh diperingkat (≥ MIN_SLOT_UPLOADS upload) */
   rankable: boolean;
+  /** Urutan kronologis (Senin → Minggu, 00.00 → 23.00) */
+  order: number;
 }
 
 const dayIndex = (d: number) => DAY_ORDER.indexOf(d);
+
+/** Nama bagian hari untuk jam lokal tertentu */
+export const daypartOf = (hour: number) => (DAYPARTS.find(([, from, to]) => hour >= from && hour < to) ?? DAYPARTS[0])[0];
+
+/** Kalimat rekomendasi dari slot terbaik (null bila belum ada slot yang bisa diperingkat). */
+export const scheduleRecommendation = (a: Pick<ScheduleAnalysis, 'best'>): string | null => {
+  const b = a.best[0];
+  if (!b) return null;
+  return `Upload hari ${DAYS[b.day]} pukul ${formatSlotTime(b)} rata-rata mendapat ${formatPerformance(b.performance)} views video seusia (${b.count} upload, keyakinan ${b.confidence}).${
+    b.confidence === 'rendah'
+      ? ' Sampelnya masih sedikit - uji jadwal ini beberapa kali sebelum menjadikannya patokan.'
+      : ' Topik dan judul tetap berpengaruh besar, jadi gunakan sebagai patokan awal lalu uji.'
+  }`;
+};
 
 /**
  * Kelompokkan upload sesuai pilihan, urutkan dari performa tertinggi. Kelompok tanpa upload dibuang; kelompok dengan
@@ -215,6 +231,5 @@ export const groupSchedule = (points: SchedulePoint[], grouping: ScheduleGroupin
       const stats = summarize(g.pts);
       return { key, label: g.label, order: g.order, rankable: stats.count >= MIN_SLOT_UPLOADS, ...stats };
     })
-    .sort((a, b) => Number(b.rankable) - Number(a.rankable) || b.performance - a.performance || a.order - b.order)
-    .map(({ order: _order, ...row }) => row);
+    .sort((a, b) => Number(b.rankable) - Number(a.rankable) || b.performance - a.performance || a.order - b.order);
 };
