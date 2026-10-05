@@ -96,3 +96,26 @@ describe('schedule analysis', () => {
     expect(formatPerformance(12.4)).toBe('12×');
   });
 });
+
+describe('schedule grouping', () => {
+  const pts = [
+    { day: 1, hour: 9, logPerf: 0.3, views: 100 },
+    { day: 1, hour: 10, logPerf: 0.3, views: 200 },
+    { day: 4, hour: 19, logPerf: -0.2, views: 50 },
+    { day: 4, hour: 20, logPerf: -0.2, views: 60 },
+    { day: 6, hour: 2, logPerf: 0.7, views: 999 },
+  ];
+  it('groups by day, hour, block, daypart and day×hour', async () => {
+    const { groupSchedule } = await import('../lib/schedule');
+    const day = groupSchedule(pts, 'day');
+    expect(day.map(r => r.label)).toEqual(['Senin', 'Kamis', 'Sabtu']);
+    expect(day[2].rankable).toBe(false); // 1 upload → di bawah meski performanya tinggi
+    expect(groupSchedule(pts, 'hour')).toHaveLength(5);
+    expect(groupSchedule(pts, 'block').map(r => r.label)).toEqual(['09.00–12.00', '18.00–21.00', '00.00–03.00']);
+    const parts = groupSchedule(pts, 'daypart');
+    expect(parts[0].label).toBe('Pagi (05.00–11.00)');
+    expect(parts.find(r => r.label.startsWith('Malam'))?.count).toBe(2);
+    expect(groupSchedule(pts, 'dayhour').every(r => !r.rankable)).toBe(true);
+    expect(groupSchedule([], 'day')).toEqual([]);
+  });
+});

@@ -136,7 +136,9 @@ const YouTubeAnalyzer: React.FC = () => {
   );
   const [filters, setFilters] = useState<VideoFilters>(DEFAULT_FILTERS);
   const [fetchLimit, setFetchLimit] = useState<FetchLimit>(() =>
-    readLocal('yt_fetch_limit', 50 as FetchLimit, raw => (Number(raw) || 50) as FetchLimit)
+    readLocal('yt_fetch_limit', 50 as FetchLimit, raw =>
+      ([10, 50, 100, 500, 1000, 5000].includes(Number(raw)) ? Number(raw) : 50) as FetchLimit
+    )
   );
   const [quotaUsed, setQuotaUsed] = useState(getQuotaUsage);
 

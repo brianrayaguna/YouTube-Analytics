@@ -45,8 +45,11 @@ export interface Slot extends SlotStats {
   span: number;
 }
 
+export type SchedulePoint = { day: number; hour: number; logPerf: number; views: number };
+
 export interface ScheduleAnalysis {
   total: number;
+  points: SchedulePoint[];
   cells: Slot[][];
   blocks: Slot[];
   byDay: Array<SlotStats & { day: number }>;
@@ -60,7 +63,7 @@ export interface ScheduleAnalysis {
   maxAvgViews: number;
 }
 
-type Point = { day: number; hour: number; logPerf: number; views: number };
+type Point = SchedulePoint;
 
 const median = (nums: number[]) => {
   if (!nums.length) return 0;
@@ -137,6 +140,7 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
   const flatCells = cells.flat();
   return {
     total: points.length,
+    points,
     cells,
     blocks,
     byDay,
@@ -149,4 +153,68 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
     maxCount: Math.max(1, ...flatCells.map(c => c.count)),
     maxAvgViews: Math.max(1, ...flatCells.map(c => c.avgViews)),
   };
+};
+
+/** Cara mengelompokkan waktu upload pada tabel peringkat. */
+export type ScheduleGrouping = 'day' | 'hour' | 'block' | 'daypart' | 'dayhour';
+
+export const GROUPING_LABELS: Record<ScheduleGrouping, string> = {
+  day: 'Hari',
+  hour: 'Jam',
+  block: 'Blok 3 jam',
+  daypart: 'Bagian hari',
+  dayhour: 'Hari × jam',
+};
+
+/** Bagian hari (jam lokal): [label, jam mulai, jam selesai) */
+export const DAYPARTS: Array<[string, number, number]> = [
+  ['Dini hari', 0, 5],
+  ['Pagi', 5, 11],
+  ['Siang', 11, 15],
+  ['Sore', 15, 18],
+  ['Malam', 18, 24],
+];
+
+export interface GroupRow extends SlotStats {
+  key: string;
+  label: string;
+  /** Boleh diperingkat (≥ MIN_SLOT_UPLOADS upload) */
+  rankable: boolean;
+}
+
+const dayIndex = (d: number) => DAY_ORDER.indexOf(d);
+
+/**
+ * Kelompokkan upload sesuai pilihan, urutkan dari performa tertinggi. Kelompok tanpa upload dibuang; kelompok dengan
+ * sampel terlalu sedikit ditaruh di bawah.
+ */
+export const groupSchedule = (points: SchedulePoint[], grouping: ScheduleGrouping): GroupRow[] => {
+  const groups = new Map<string, { label: string; order: number; pts: SchedulePoint[] }>();
+  const add = (key: string, label: string, order: number, p: SchedulePoint) => {
+    const g = groups.get(key) ?? { label, order, pts: [] };
+    g.pts.push(p);
+    groups.set(key, g);
+  };
+  points.forEach(p => {
+    if (grouping === 'day') add(`d${p.day}`, DAYS[p.day], dayIndex(p.day), p);
+    else if (grouping === 'hour') add(`h${p.hour}`, `${formatHour(p.hour)}–${formatHour(p.hour + 1)}`, p.hour, p);
+    else if (grouping === 'block') {
+      const start = p.hour - (p.hour % BLOCK_HOURS);
+      add(`b${start}`, formatSlotTime({ hour: start, span: BLOCK_HOURS }), start, p);
+    } else if (grouping === 'daypart') {
+      const i = DAYPARTS.findIndex(([, from, to]) => p.hour >= from && p.hour < to);
+      const [label, from, to] = DAYPARTS[i];
+      add(`p${i}`, `${label} (${formatHour(from)}–${formatHour(to)})`, i, p);
+    } else {
+      add(`d${p.day}h${p.hour}`, `${DAYS[p.day]}, ${formatHour(p.hour)}`, dayIndex(p.day) * 24 + p.hour, p);
+    }
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, g]) => {
+      const stats = summarize(g.pts);
+      return { key, label: g.label, order: g.order, rankable: stats.count >= MIN_SLOT_UPLOADS, ...stats };
+    })
+    .sort((a, b) => Number(b.rankable) - Number(a.rankable) || b.performance - a.performance || a.order - b.order)
+    .map(({ order: _order, ...row }) => row);
 };

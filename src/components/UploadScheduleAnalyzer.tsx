@@ -34,6 +34,9 @@ import {
   MIN_SLOT_UPLOADS,
   Slot,
   SlotConfidence,
+  groupSchedule,
+  GROUPING_LABELS,
+  ScheduleGrouping,
 } from '../lib/schedule';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +56,8 @@ const PERIOD_KEY = 'yt_schedule_period';
 const CUSTOM_KEY = 'yt_schedule_custom_period';
 const FORMAT_KEY = 'yt_schedule_format';
 const COUNT_KEY = 'yt_schedule_count';
+const GROUPING_KEY = 'yt_schedule_grouping';
+const GROUPINGS = Object.keys(GROUPING_LABELS) as ScheduleGrouping[];
 /** Pilihan "N video terbaru" (0 = semua yang cocok) */
 const COUNT_OPTIONS = [10, 25, 50, 100, 250, 500, 1000, 0];
 const FETCH_STEPS: FetchLimit[] = [50, 100, 500, 1000, 5000];
@@ -110,6 +115,9 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
   const [count, setCount] = useState<number>(() =>
     readLocal(COUNT_KEY, v => (COUNT_OPTIONS.includes(Number(v)) && v !== null ? Number(v) : 0))
   );
+  const [grouping, setGrouping] = useState<ScheduleGrouping>(() =>
+    readLocal(GROUPING_KEY, v => (GROUPINGS.includes(v as ScheduleGrouping) ? (v as ScheduleGrouping) : 'day'))
+  );
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const allVideos = data.videos;
 
@@ -124,6 +132,10 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
   const changeFormat = (f: FormatFilter) => {
     setFormat(f);
     writeLocal(FORMAT_KEY, f);
+  };
+  const changeGrouping = (g: ScheduleGrouping) => {
+    setGrouping(g);
+    writeLocal(GROUPING_KEY, g);
   };
   const changeCount = (n: number) => {
     setCount(n);
@@ -154,6 +166,8 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
   }, [periodId, custom, format, count, allVideos, data.source, data.channelStats?.videoCountRaw]);
 
   const analysis = useMemo(() => analyzeSchedule(scope.videos), [scope.videos]);
+  const groupRows = useMemo(() => groupSchedule(analysis.points, grouping), [analysis.points, grouping]);
+  const maxGroupPerf = Math.max(1, ...groupRows.map(r => r.performance));
   const videos = scope.videos;
   const uploadsPerWeek = scope.days >= 1 ? videos.length / (scope.days / 7) : videos.length;
   const shortsCount = useMemo(() => allVideos.filter(v => v.isShort).length, [allVideos]);
@@ -466,6 +480,59 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
               {analysis.worst.length ? <SlotList slots={analysis.worst} tone="bad" /> : <NotEnough />}
             </SectionCard>
           </div>
+
+          <SectionCard
+            className="mt-6"
+            title="Peringkat waktu upload"
+            description={`Dikelompokkan per ${GROUPING_LABELS[grouping].toLowerCase()}, urut dari performa tertinggi. Kelompok dengan kurang dari ${MIN_SLOT_UPLOADS} upload ditaruh di bawah.`}
+          >
+            <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:-mx-6 sm:px-6" role="group" aria-label="Kelompokkan">
+              <span className="self-center pr-1 text-sm text-muted-foreground">Kelompokkan:</span>
+              {GROUPINGS.map(g => (
+                <button key={g} type="button" className="yt-chip" data-active={grouping === g} onClick={() => changeGrouping(g)}>
+                  {GROUPING_LABELS[g]}
+                </button>
+              ))}
+            </div>
+            <div className="-mx-4 max-h-[480px] overflow-auto sm:-mx-6">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="w-10 px-4 py-2 font-normal sm:pl-6">#</th>
+                    <th className="px-2 py-2 font-normal">{GROUPING_LABELS[grouping]}</th>
+                    <th className="px-2 py-2 text-right font-normal">Upload</th>
+                    <th className="px-2 py-2 text-right font-normal">Median views</th>
+                    <th className="w-[30%] px-2 py-2 font-normal">Performa</th>
+                    <th className="px-4 py-2 text-right font-normal sm:pr-6">Keyakinan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupRows.map((r, i) => (
+                    <tr key={r.key} className={cn('border-b border-border last:border-0', !r.rankable && 'text-muted-foreground')}>
+                      <td className="px-4 py-2 text-muted-foreground sm:pl-6">{r.rankable ? i + 1 : '–'}</td>
+                      <td className="whitespace-nowrap px-2 py-2 font-medium">{r.label}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{r.count}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.medianViews)}</td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                            <span
+                              className={cn('block h-full rounded-full', r.performance >= 1 ? 'bg-primary' : 'bg-youtube-red', !r.rankable && 'opacity-40')}
+                              style={{ width: `${(r.performance / maxGroupPerf) * 100}%` }}
+                            />
+                          </span>
+                          <span className="w-12 text-right tabular-nums">{formatPerformance(r.performance)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-right sm:pr-6">
+                        <span className={cn('rounded px-1.5 py-px text-[10px] font-medium', CONFIDENCE_STYLE[r.confidence])}>{r.confidence}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
 
           {analysis.best[0] && (
             <div className="mt-6 flex items-start gap-4 rounded-xl bg-primary/10 p-4 sm:p-5">

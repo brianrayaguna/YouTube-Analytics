@@ -116,8 +116,10 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
   const rows = useMemo(() => {
     if (!result) return [];
     const { a, b } = result;
-    return [
-      { label: 'Subscriber', a: a.stats.subCountRaw, b: b.stats.subCountRaw, fmt: formatNumber },
+    // Subscriber yang disembunyikan terbaca 0 — jangan dihitung kalah
+    const subsHidden = !!(a.stats.hiddenSubscriberCount || b.stats.hiddenSubscriberCount);
+    const rows: Array<{ label: string; a: number; b: number; fmt: (n: number) => string; unavailable?: boolean }> = [
+      { label: 'Subscriber', a: a.stats.subCountRaw, b: b.stats.subCountRaw, fmt: formatNumber, unavailable: subsHidden },
       { label: 'Total views', a: a.stats.viewCountRaw ?? 0, b: b.stats.viewCountRaw ?? 0, fmt: formatNumber },
       { label: 'Jumlah video', a: a.stats.videoCountRaw ?? 0, b: b.stats.videoCountRaw ?? 0, fmt: (n: number) => n.toLocaleString('id-ID') },
       { label: `Rata-rata views (${SAMPLE_SIZE} terbaru)`, a: a.avgViews, b: b.avgViews, fmt: formatNumber },
@@ -129,14 +131,19 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
         a: a.stats.subCountRaw ? a.avgViews / a.stats.subCountRaw : 0,
         b: b.stats.subCountRaw ? b.avgViews / b.stats.subCountRaw : 0,
         fmt: (n: number) => `${(n * 100).toFixed(1)}%`,
+        unavailable: subsHidden,
       },
     ];
+    return rows;
   }, [result]);
+
+  const hiddenLabel = (ch: ChannelData | undefined, r: { label: string; unavailable?: boolean }) =>
+    r.unavailable && ch?.stats.hiddenSubscriberCount ? 'Disembunyikan' : null;
 
   const radarData = useMemo(
     () =>
       rows
-        .filter(r => r.label !== 'Median views')
+        .filter(r => r.label !== 'Median views' && !r.unavailable)
         .map(r => {
           const max = Math.max(r.a, r.b) || 1;
           return { metric: r.label.replace(` (${SAMPLE_SIZE} terbaru)`, ''), A: (r.a / max) * 100, B: (r.b / max) * 100 };
@@ -146,8 +153,9 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
 
   const nameA = result?.a.stats.title || 'Channel A';
   const nameB = result?.b.stats.title || 'Channel B';
-  const winsA = rows.filter(r => r.a > r.b).length;
-  const winsB = rows.filter(r => r.b > r.a).length;
+  const scored = rows.filter(r => !r.unavailable);
+  const winsA = scored.filter(r => r.a > r.b).length;
+  const winsB = scored.filter(r => r.b > r.a).length;
 
   return (
     <div>
@@ -220,17 +228,17 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
 
             <div className="mt-6 divide-y divide-border">
               {rows.map(r => {
-                const aWins = r.a > r.b;
-                const bWins = r.b > r.a;
+                const aWins = !r.unavailable && r.a > r.b;
+                const bWins = !r.unavailable && r.b > r.a;
                 return (
                   <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-3 text-sm">
                     <span className={cn('flex items-center justify-end gap-1.5 tabular-nums', aWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                       {aWins && <Crown className="h-4 w-4 text-warning" />}
-                      {r.fmt(r.a)}
+                      {hiddenLabel(result.a, r) ?? r.fmt(r.a)}
                     </span>
                     <span className="w-36 text-center text-xs text-muted-foreground sm:w-48">{r.label}</span>
                     <span className={cn('flex items-center gap-1.5 tabular-nums', bWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-                      {r.fmt(r.b)}
+                      {hiddenLabel(result.b, r) ?? r.fmt(r.b)}
                       {bWins && <Crown className="h-4 w-4 text-warning" />}
                     </span>
                   </div>

@@ -72,3 +72,14 @@ describe('period', () => {
     expect(isPeriodId('5d')).toBe(false);
   });
 });
+
+describe('subtractMonths', () => {
+  it('clamps to the end of shorter months', async () => {
+    const { subtractMonths } = await import('../lib/period');
+    expect(subtractMonths(new Date(2026, 2, 31, 10), 1)).toEqual(new Date(2026, 1, 28, 10));
+    expect(subtractMonths(new Date(2028, 2, 31), 1)).toEqual(new Date(2028, 1, 29));
+    expect(subtractMonths(new Date(2026, 4, 31), 3)).toEqual(new Date(2026, 1, 28));
+    expect(subtractMonths(new Date(2026, 9, 5), 12)).toEqual(new Date(2025, 9, 5));
+    expect(subtractMonths(new Date(2026, 0, 15), 1)).toEqual(new Date(2025, 11, 15));
+  });
+});
