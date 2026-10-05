@@ -8,7 +8,7 @@ Aplikasi web untuk menganalisis channel, playlist, video, dan hasil pencarian Yo
 | --- | --- |
 | **Beranda** | Analisis `@handle`, URL channel/playlist/video/Shorts, channel ID, atau kata kunci. Header channel (banner, avatar, subscriber), chip jenis konten & urutan, dialog filter lengkap, infinite scroll, rak Shorts, pratinjau video ala halaman tonton. |
 | **Trending** | Video trending per wilayah (14 negara). |
-| **Statistik Channel** | KPI, grafik views & ER per video, format Video vs Shorts, konten teratas, analisis tag. |
+| **Statistik Channel** | Pilih periode (24 jam, 3/7/14/28 hari, 1/3/6 bulan, 1 tahun, tahun ini, semua waktu, atau rentang kustom) berdasarkan tanggal upload, dengan perbandingan ke periode sebelumnya. KPI, grafik views & ER per video, format Video vs Shorts, konten teratas, analisis tag. |
 | **Skor Konten** | Skor 0–100 & nilai A–F untuk judul dan thumbnail (model v2: jangkauan vs video seusia, engagement, kualitas teks/HD), tingkat keyakinan, dan saran perbaikan judul. |
 | **Jadwal Upload** | Peta panas hari × jam (zona waktu lokal), hari/jam terbaik. |
 | **Content Gap** | Topik trending yang belum dibahas channel. |
