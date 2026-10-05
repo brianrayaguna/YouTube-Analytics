@@ -1,5 +1,6 @@
 import { VideoItem, AnalyzedData, ChannelStats } from '../types';
 import { formatNumber, formatDuration, timeAgo, median } from '../lib/format';
+import { isShortDuration } from '../lib/video';
 
 export { formatNumber, formatDuration } from '../lib/format';
 
@@ -46,6 +47,7 @@ const trackQuota = (cost: number) => {
 
 const reviveVideo = (v: VideoItem): VideoItem => ({
   ...v,
+  isShort: isShortDuration(v.durationSec),
   publishedAtDate: new Date(v.publishedAt),
   publishedTimeAgo: timeAgo(v.publishedAt),
 });
@@ -192,8 +194,6 @@ const parseIsoDuration = (duration: string | undefined): number => {
   return d * 86400 + h * 3600 + m * 60 + s;
 };
 
-const SHORTS_HASHTAG = /#shorts?\b/i;
-
 const mapVideo = (v: ApiResponse): VideoItem => {
   const dur = parseIsoDuration(v.contentDetails?.duration);
   const thumbs = v.snippet?.thumbnails || {};
@@ -204,8 +204,9 @@ const mapVideo = (v: ApiResponse): VideoItem => {
   const er = views > 0 ? ((likes + comments) / views) * 100 : 0;
   const title: string = v.snippet?.title || '(Tanpa judul)';
   const description: string = v.snippet?.description || '';
-  // Shorts: ≤60 dtk, atau ≤3 menit dengan tagar #shorts (batas Shorts sejak Okt 2024)
-  const isShort = dur > 0 && (dur <= 60 || (dur <= 180 && SHORTS_HASHTAG.test(`${title} ${description}`)));
+  // Shorts: durasi 1 detik s.d. 3 menit (batas YouTube Shorts sejak Okt 2024)
+  const isShort = isShortDuration(dur);
+  const stats = v.statistics || {};
 
   return {
     id: v.id,
@@ -229,6 +230,9 @@ const mapVideo = (v: ApiResponse): VideoItem => {
     channelId: v.snippet?.channelId || '',
     isShort,
     isOutlier: false,
+    likesHidden: stats.likeCount === undefined,
+    commentsDisabled: stats.commentCount === undefined,
+    thumbnailHd: !!thumbs.maxres,
   };
 };
 

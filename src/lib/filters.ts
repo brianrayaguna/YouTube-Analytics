@@ -104,3 +104,17 @@ export const applyFilters = (videos: VideoItem[], f: VideoFilters, now = Date.no
   };
   return result.sort(comparators[f.sort] ?? comparators.popular);
 };
+
+/** Ringkasan filter aktif untuk ditulis di laporan ekspor (undefined bila tanpa filter). */
+export const describeFilters = (f: VideoFilters): string | undefined => {
+  const parts: string[] = [];
+  if (f.contentType !== 'all') parts.push(f.contentType === 'shorts' ? 'Shorts' : 'Video panjang');
+  if (f.dateRange !== 'all') parts.push(DATE_LABELS[f.dateRange]);
+  if (f.duration !== 'all') parts.push(DURATION_LABELS[f.duration]);
+  if (f.minViews > 0) parts.push(`views ≥ ${f.minViews.toLocaleString('id-ID')}`);
+  if (f.minLikes > 0) parts.push(`likes ≥ ${f.minLikes.toLocaleString('id-ID')}`);
+  if (f.minER > 0) parts.push(`ER ≥ ${f.minER}%`);
+  if (f.keyword.trim()) parts.push(`kata "${f.keyword.trim()}"`);
+  if (f.outliersOnly) parts.push('hanya outlier');
+  return parts.length ? `${parts.join(', ')} • urut ${SORT_LABELS[f.sort].toLowerCase()}` : undefined;
+};

@@ -8,9 +8,6 @@ import {
   X,
   Bookmark,
   BookmarkMinus,
-  FileSpreadsheet,
-  FileText,
-  Sheet,
   Search,
   KeyRound,
   Flame,
@@ -49,18 +46,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage, classifyQuery } from '../services/youtubeService';
-import { generateCSV, exportToExcel, generateFullAnalysisCSV, copyToClipboard } from '../services/exportService';
+import { copyToClipboard } from '../services/exportService';
+import ExportDialog, { ExportScope } from '../components/ExportDialog';
 import { generateZip } from '../services/zipService';
 import { addToSearchHistory, getSearchHistory } from '../services/historyService';
-import { applyFilters, countActiveFilters, DEFAULT_FILTERS, SORT_LABELS, VideoFilters } from '../lib/filters';
+import { applyFilters, countActiveFilters, describeFilters, DEFAULT_FILTERS, SORT_LABELS, VideoFilters } from '../lib/filters';
 import { timeAgo, formatFullNumber } from '../lib/format';
 import { getNavItem } from '../config/navigation';
+import { withShortsClassification } from '../lib/video';
 import { cn } from '@/lib/utils';
 
 // Halaman analisis dimuat terpisah (code-splitting) agar bundle awal ringan
@@ -135,7 +132,7 @@ const YouTubeAnalyzer: React.FC = () => {
   const [trendingData, setTrendingData] = useState<AnalyzedData | null>(null);
   const [trendingRegion, setTrendingRegion] = useState(() => readLocal('yt_trending_region', 'ID', raw => raw));
   const [savedVideos, setSavedVideos] = useState<VideoItem[]>(() =>
-    readLocal<VideoItem[]>('yt_saved_videos', []).map(v => ({ ...v, publishedTimeAgo: timeAgo(v.publishedAt) }))
+    readLocal<VideoItem[]>('yt_saved_videos', []).map(v => withShortsClassification({ ...v, publishedTimeAgo: timeAgo(v.publishedAt) }))
   );
   const [filters, setFilters] = useState<VideoFilters>(DEFAULT_FILTERS);
   const [fetchLimit, setFetchLimit] = useState<FetchLimit>(() =>
@@ -153,6 +150,8 @@ const YouTubeAnalyzer: React.FC = () => {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<ExportScope>('filtered');
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -365,30 +364,9 @@ const YouTubeAnalyzer: React.FC = () => {
     }
   };
 
-  const runExport = async (kind: 'csv' | 'csv_full' | 'excel' | 'pdf', list: VideoItem[]) => {
-    if (!list.length) return;
-    try {
-      if (kind === 'csv') generateCSV(list, exportName);
-      else if (kind === 'csv_full') generateFullAnalysisCSV(list, exportName);
-      else if (kind === 'excel') await exportToExcel(list, exportName);
-      else {
-        if (busy) return;
-        setBusy(true);
-        showToast('Membuat laporan PDF… (mengunduh thumbnail)', 'loading');
-        const { generatePDFReport } = await import('../services/pdfService');
-        await generatePDFReport({
-          channelTitle: exportName,
-          channelStats: mode === 'dashboard' ? data?.channelStats : undefined,
-          videos: list,
-          generatedAt: new Date(),
-        });
-      }
-      showToast(`${kind === 'pdf' ? 'PDF' : kind === 'excel' ? 'Excel' : 'CSV'} berhasil dibuat`, 'success');
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Gagal mengekspor', 'error');
-    } finally {
-      if (kind === 'pdf') setBusy(false);
-    }
+  const openExport = (scope: ExportScope) => {
+    setExportScope(scope);
+    setExportOpen(true);
   };
 
   const handleBatchSave = () => {
@@ -417,34 +395,6 @@ const YouTubeAnalyzer: React.FC = () => {
   // --- Render helpers ---
   const regionName = TRENDING_REGIONS.find(r => r.code === (trendingData?.query ?? trendingRegion))?.name;
   const hasGridData = mode === 'saved' ? savedVideos.length > 0 : mode === 'trending' ? !!trendingData : !!data;
-
-  const exportMenu = (list: VideoItem[], label = 'Ekspor') => (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className="yt-pill" disabled={!list.length || busy}>
-          <FileDown className="h-5 w-5" strokeWidth={1.75} /> {label} <ChevronDown className="-mr-1 h-4 w-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 rounded-xl py-2 shadow-popover">
-        <DropdownMenuLabel className="px-4 text-xs font-normal text-muted-foreground">
-          {formatFullNumber(list.length)} video
-        </DropdownMenuLabel>
-        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4" onSelect={() => runExport('csv', list)}>
-          <FileText className="h-5 w-5" strokeWidth={1.75} /> CSV ringkas
-        </DropdownMenuItem>
-        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4" onSelect={() => runExport('csv_full', list)}>
-          <Sheet className="h-5 w-5" strokeWidth={1.75} /> CSV lengkap + skor
-        </DropdownMenuItem>
-        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4" onSelect={() => runExport('excel', list)}>
-          <FileSpreadsheet className="h-5 w-5" strokeWidth={1.75} /> Excel (.xlsx)
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className="my-2" />
-        <DropdownMenuItem className="h-9 gap-4 rounded-none px-4" onSelect={() => runExport('pdf', list)}>
-          <FileDown className="h-5 w-5" strokeWidth={1.75} /> Laporan PDF {list.length > 100 && <span className="ml-auto text-xs text-muted-foreground">maks 100</span>}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 
   const chipBar = (
     <div className="sticky top-14 z-30 -mx-4 mb-4 bg-background px-4 py-3 sm:-mx-6 sm:px-6">
@@ -542,7 +492,14 @@ const YouTubeAnalyzer: React.FC = () => {
         >
           <ImageDown className="h-5 w-5" strokeWidth={1.75} /> Thumbnail (ZIP)
         </button>
-        {exportMenu(filteredVideos)}
+        <button
+          type="button"
+          className="yt-pill"
+          onClick={() => openExport('filtered')}
+          disabled={!filteredVideos.length}
+        >
+          <FileDown className="h-5 w-5" strokeWidth={1.75} /> Ekspor
+        </button>
         <button
           type="button"
           className={cn('yt-pill', selectMode && 'bg-inverse text-inverse-foreground hover:bg-inverse')}
@@ -837,7 +794,7 @@ const YouTubeAnalyzer: React.FC = () => {
                 },
                 { label: 'Salin link', icon: Link2, onClick: () => copyLinks(selectedList) },
                 { label: 'ZIP', icon: ImageDown, onClick: () => downloadZip(selectedList, `${exportName}_terpilih`) },
-                { label: 'CSV', icon: FileText, onClick: () => runExport('csv', selectedList) },
+                { label: 'Ekspor', icon: FileDown, onClick: () => openExport('selected') },
               ].map(({ label, icon: Icon, onClick }) => (
                 <button
                   key={label}
@@ -866,6 +823,21 @@ const YouTubeAnalyzer: React.FC = () => {
         onSaveToggle={handleSaveToggle}
         onAnalyzeChannel={handleAnalyzeChannel}
         isSaved={previewVideo ? savedIds.has(previewVideo.id) : false}
+        onToast={showToast}
+      />
+
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        scopes={{ filtered: filteredVideos, all: sourceVideos, selected: selectMode ? selectedList : [] }}
+        defaultScope={exportScope}
+        context={{
+          title: mode === 'saved' ? 'Video tersimpan' : mode === 'trending' ? `Trending ${regionName ?? ''}`.trim() : data?.channelTitle || 'Analisis YouTube',
+          source: mode === 'saved' ? 'saved' : mode === 'trending' ? 'trending' : data?.source,
+          query: mode === 'trending' ? trendingData?.query : data?.query,
+          channelStats: mode === 'dashboard' && data?.source === 'channel' ? data.channelStats : undefined,
+        }}
+        filterNote={describeFilters(filters)}
         onToast={showToast}
       />
 
