@@ -1,25 +1,25 @@
-import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChannelStats, VideoItem } from '../types';
-import { fetchChannelInfo } from '../services/youtubeService';
-import { IconChart, IconLoader, IconTrending } from '../constants/icons';
-import { 
-  RadarChart, 
-  PolarGrid, 
-  PolarAngleAxis, 
-  PolarRadiusAxis, 
-  Radar, 
-  Legend, 
+import React, { useMemo, useState } from 'react';
+import { Loader2, Swords, Crown, ArrowLeftRight } from 'lucide-react';
+import {
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  Radar,
+  Legend,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip
+  Tooltip,
 } from 'recharts';
+import { ChannelStats, VideoItem } from '../types';
+import { fetchChannelInfo, fetchChannelUploads, resolveChannelId } from '../services/youtubeService';
+import { PageHeader, SectionCard, EmptyState } from './common';
+import { ChannelAvatar } from './VideoCard';
+import { formatNumber, median } from '../lib/format';
+import { cn } from '@/lib/utils';
 
 interface BenchmarkProps {
   apiKey: string;
+  onRequireApiKey: () => void;
+  defaultChannel?: string;
 }
 
 interface ChannelData {
@@ -27,471 +27,257 @@ interface ChannelData {
   videos: VideoItem[];
   uploadFrequency: number;
   avgEngagementRate: number;
+  avgViews: number;
+  medianViews: number;
+  shortsShare: number;
   topTags: string[];
 }
 
 interface ComparisonResult {
-  ch1: ChannelData;
-  ch2: ChannelData;
+  a: ChannelData;
+  b: ChannelData;
   tagOverlap: string[];
-  uniqueTags1: string[];
-  uniqueTags2: string[];
+  uniqueA: string[];
+  uniqueB: string[];
 }
 
-const fetchChannelVideos = async (apiKey: string, channelId: string): Promise<VideoItem[]> => {
-  // Fetch channel's uploads playlist
-  const channelRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`
-  );
-  const channelData = await channelRes.json();
-  const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  
-  if (!uploadsPlaylistId) return [];
+const SAMPLE_SIZE = 30;
+const COLOR_A = 'hsl(var(--primary))';
+const COLOR_B = 'hsl(var(--yt-red))';
 
-  // Fetch recent videos from uploads playlist
-  const playlistRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=10&key=${apiKey}`
-  );
-  const playlistData = await playlistRes.json();
-  const videoIds = playlistData.items?.map((item: any) => item.contentDetails.videoId) || [];
-  
-  if (videoIds.length === 0) return [];
-
-  // Fetch video details
-  const videosRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(',')}&key=${apiKey}`
-  );
-  const videosData = await videosRes.json();
-
-  return videosData.items?.map((v: any) => {
-    const views = Number(v.statistics.viewCount || 0);
-    const likes = Number(v.statistics.likeCount || 0);
-    const comments = Number(v.statistics.commentCount || 0);
-    const er = views > 0 ? ((likes + comments) / views) * 100 : 0;
-
-    return {
-      id: v.id,
-      title: v.snippet.title,
-      tags: v.snippet.tags || [],
-      viewCountRaw: views,
-      likeCountRaw: likes,
-      commentCountRaw: comments,
-      engagementRate: parseFloat(er.toFixed(2)),
-      publishedAt: v.snippet.publishedAt,
-    } as VideoItem;
-  }) || [];
+const buildChannelData = (stats: ChannelStats, videos: VideoItem[]): ChannelData => {
+  const times = videos.map(v => new Date(v.publishedAt).getTime()).filter(Boolean);
+  const weeks = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / (7 * 86400000) : 0;
+  const tagCounts = new Map<string, number>();
+  videos.forEach(v => v.tags.forEach(t => tagCounts.set(t.toLowerCase(), (tagCounts.get(t.toLowerCase()) || 0) + 1)));
+  const views = videos.map(v => v.viewCountRaw);
+  return {
+    stats,
+    videos,
+    uploadFrequency: weeks > 0 ? videos.length / weeks : 0,
+    avgEngagementRate: videos.length ? videos.reduce((s, v) => s + v.engagementRate, 0) / videos.length : 0,
+    avgViews: views.length ? views.reduce((a, b) => a + b, 0) / views.length : 0,
+    medianViews: median(views),
+    shortsShare: videos.length ? (videos.filter(v => v.isShort).length / videos.length) * 100 : 0,
+    topTags: Array.from(tagCounts.entries())
+      .sort((x, y) => y[1] - x[1])
+      .slice(0, 25)
+      .map(([t]) => t),
+  };
 };
 
-const resolveChannelId = async (apiKey: string, input: string): Promise<string | null> => {
-  const cleaned = input.trim().replace(/.*youtube\.com\//g, '').replace(/^@/, '');
-  
-  // If already looks like a channel ID
-  if (cleaned.startsWith('UC') && cleaned.length === 24) {
-    return cleaned;
-  }
-
-  // Try to resolve handle
-  try {
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(cleaned)}&key=${apiKey}`
-    );
-    const data = await res.json();
-    if (data.items?.[0]?.id) return data.items[0].id;
-  } catch {}
-
-  // Fallback to search
-  try {
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(cleaned)}&maxResults=1&key=${apiKey}`
-    );
-    const data = await res.json();
-    if (data.items?.[0]) {
-      return data.items[0].id.channelId || data.items[0].snippet.channelId;
-    }
-  } catch {}
-
-  return null;
-};
-
-const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey }) => {
-  const [ch1Query, setCh1Query] = useState('');
-  const [ch2Query, setCh2Query] = useState('');
+const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey, defaultChannel }) => {
+  const [queryA, setQueryA] = useState(defaultChannel ?? '');
+  const [queryB, setQueryB] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleCompare = async () => {
     if (!apiKey) {
-      setError('API Key diperlukan. Silakan masukkan di Settings.');
+      onRequireApiKey();
+      setError('Atur API Key terlebih dahulu.');
       return;
     }
-    if (!ch1Query.trim() || !ch2Query.trim()) {
-      setError('Masukkan kedua Channel ID atau Handle');
+    if (!queryA.trim() || !queryB.trim()) {
+      setError('Isi kedua channel (ID, @handle, atau URL).');
       return;
     }
-
     setLoading(true);
     setError(null);
-    setResult(null);
-
     try {
-      // Resolve channel IDs
-      const [id1, id2] = await Promise.all([
-        resolveChannelId(apiKey, ch1Query),
-        resolveChannelId(apiKey, ch2Query)
+      const [idA, idB] = await Promise.all([resolveChannelId(apiKey, queryA), resolveChannelId(apiKey, queryB)]);
+      if (idA === idB) throw new Error('Kedua input mengarah ke channel yang sama.');
+      const [statsA, statsB, videosA, videosB] = await Promise.all([
+        fetchChannelInfo(apiKey, idA),
+        fetchChannelInfo(apiKey, idB),
+        fetchChannelUploads(apiKey, idA, SAMPLE_SIZE),
+        fetchChannelUploads(apiKey, idB, SAMPLE_SIZE),
       ]);
-
-      if (!id1 || !id2) {
-        throw new Error('Channel tidak ditemukan. Pastikan ID atau handle benar.');
-      }
-
-      // Fetch channel stats and videos in parallel
-      const [stats1, stats2, videos1, videos2] = await Promise.all([
-        fetchChannelInfo(apiKey, id1),
-        fetchChannelInfo(apiKey, id2),
-        fetchChannelVideos(apiKey, id1),
-        fetchChannelVideos(apiKey, id2)
-      ]);
-
-      if (!stats1 || !stats2) {
-        throw new Error('Gagal mengambil statistik channel.');
-      }
-
-      // Calculate metrics
-      const calculateMetrics = (videos: VideoItem[]): { freq: number; avgER: number; tags: string[] } => {
-        if (videos.length < 2) return { freq: 0, avgER: 0, tags: [] };
-        
-        const dates = videos.map(v => new Date(v.publishedAt).getTime()).sort((a, b) => b - a);
-        const weeksDiff = (dates[0] - dates[dates.length - 1]) / (1000 * 60 * 60 * 24 * 7);
-        const freq = weeksDiff > 0 ? videos.length / weeksDiff : 0;
-        
-        const avgER = videos.reduce((sum, v) => sum + v.engagementRate, 0) / videos.length;
-        
-        const allTags = videos.flatMap(v => v.tags || []);
-        const tagCounts = new Map<string, number>();
-        allTags.forEach(tag => tagCounts.set(tag.toLowerCase(), (tagCounts.get(tag.toLowerCase()) || 0) + 1));
-        const topTags = Array.from(tagCounts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 20)
-          .map(([tag]) => tag);
-        
-        return { freq, avgER, tags: topTags };
-      };
-
-      const metrics1 = calculateMetrics(videos1);
-      const metrics2 = calculateMetrics(videos2);
-
-      // Calculate tag overlap
-      const set1 = new Set(metrics1.tags);
-      const set2 = new Set(metrics2.tags);
-      const overlap = metrics1.tags.filter(t => set2.has(t));
-      const unique1 = metrics1.tags.filter(t => !set2.has(t));
-      const unique2 = metrics2.tags.filter(t => !set1.has(t));
-
+      if (!statsA || !statsB) throw new Error('Gagal mengambil statistik channel.');
+      const a = buildChannelData(statsA, videosA);
+      const b = buildChannelData(statsB, videosB);
+      const setB = new Set(b.topTags);
+      const setA = new Set(a.topTags);
       setResult({
-        ch1: {
-          stats: stats1,
-          videos: videos1,
-          uploadFrequency: metrics1.freq,
-          avgEngagementRate: metrics1.avgER,
-          topTags: metrics1.tags
-        },
-        ch2: {
-          stats: stats2,
-          videos: videos2,
-          uploadFrequency: metrics2.freq,
-          avgEngagementRate: metrics2.avgER,
-          topTags: metrics2.tags
-        },
-        tagOverlap: overlap,
-        uniqueTags1: unique1,
-        uniqueTags2: unique2
+        a,
+        b,
+        tagOverlap: a.topTags.filter(t => setB.has(t)),
+        uniqueA: a.topTags.filter(t => !setB.has(t)),
+        uniqueB: b.topTags.filter(t => !setA.has(t)),
       });
-    } catch (err: any) {
-      setError(err.message || 'Gagal membandingkan channel');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal membandingkan channel');
     } finally {
       setLoading(false);
     }
   };
 
-  // Prepare radar chart data
-  const radarData = useMemo(() => {
+  const rows = useMemo(() => {
     if (!result) return [];
-    
-    const normalize = (v1: number, v2: number) => {
-      const max = Math.max(v1, v2, 1);
-      return { n1: (v1 / max) * 100, n2: (v2 / max) * 100 };
-    };
-
-    const subs = normalize(result.ch1.stats.subCountRaw, result.ch2.stats.subCountRaw);
-    const views = normalize(
-      parseInt(result.ch1.stats.viewCount.replace(/[^0-9]/g, '')),
-      parseInt(result.ch2.stats.viewCount.replace(/[^0-9]/g, ''))
-    );
-    const vids = normalize(
-      parseInt(result.ch1.stats.videoCount.replace(/[^0-9]/g, '')),
-      parseInt(result.ch2.stats.videoCount.replace(/[^0-9]/g, ''))
-    );
-    const freq = normalize(result.ch1.uploadFrequency, result.ch2.uploadFrequency);
-    const er = normalize(result.ch1.avgEngagementRate, result.ch2.avgEngagementRate);
-
+    const { a, b } = result;
     return [
-      { metric: 'Subscribers', ch1: subs.n1, ch2: subs.n2 },
-      { metric: 'Total Views', ch1: views.n1, ch2: views.n2 },
-      { metric: 'Video Count', ch1: vids.n1, ch2: vids.n2 },
-      { metric: 'Upload Freq', ch1: freq.n1, ch2: freq.n2 },
-      { metric: 'Avg ER%', ch1: er.n1, ch2: er.n2 },
+      { label: 'Subscriber', a: a.stats.subCountRaw, b: b.stats.subCountRaw, fmt: formatNumber },
+      { label: 'Total views', a: a.stats.viewCountRaw ?? 0, b: b.stats.viewCountRaw ?? 0, fmt: formatNumber },
+      { label: 'Jumlah video', a: a.stats.videoCountRaw ?? 0, b: b.stats.videoCountRaw ?? 0, fmt: (n: number) => n.toLocaleString('id-ID') },
+      { label: `Rata-rata views (${SAMPLE_SIZE} terbaru)`, a: a.avgViews, b: b.avgViews, fmt: formatNumber },
+      { label: 'Median views', a: a.medianViews, b: b.medianViews, fmt: formatNumber },
+      { label: 'Engagement rate', a: a.avgEngagementRate, b: b.avgEngagementRate, fmt: (n: number) => `${n.toFixed(2)}%` },
+      { label: 'Upload / minggu', a: a.uploadFrequency, b: b.uploadFrequency, fmt: (n: number) => n.toFixed(1) },
+      {
+        label: 'Views per subscriber',
+        a: a.stats.subCountRaw ? a.avgViews / a.stats.subCountRaw : 0,
+        b: b.stats.subCountRaw ? b.avgViews / b.stats.subCountRaw : 0,
+        fmt: (n: number) => `${(n * 100).toFixed(1)}%`,
+      },
     ];
   }, [result]);
 
-  // Bar chart data for engagement comparison
-  const engagementBarData = useMemo(() => {
-    if (!result) return [];
-    return [
-      { name: 'Channel A', value: result.ch1.avgEngagementRate, fill: 'hsl(var(--primary))' },
-      { name: 'Channel B', value: result.ch2.avgEngagementRate, fill: 'hsl(var(--destructive))' },
-    ];
-  }, [result]);
+  const radarData = useMemo(
+    () =>
+      rows
+        .filter(r => r.label !== 'Median views')
+        .map(r => {
+          const max = Math.max(r.a, r.b) || 1;
+          return { metric: r.label.replace(` (${SAMPLE_SIZE} terbaru)`, ''), A: (r.a / max) * 100, B: (r.b / max) * 100 };
+        }),
+    [rows]
+  );
 
-  const MetricRow = ({ label, v1, v2, unit = '', higherIsBetter = true }: { 
-    label: string; v1: number | string; v2: number | string; unit?: string; higherIsBetter?: boolean 
-  }) => {
-    const num1 = typeof v1 === 'number' ? v1 : parseFloat(String(v1).replace(/[^0-9.]/g, ''));
-    const num2 = typeof v2 === 'number' ? v2 : parseFloat(String(v2).replace(/[^0-9.]/g, ''));
-    const isV1Better = higherIsBetter ? num1 > num2 : num1 < num2;
-    const isTie = num1 === num2;
-    
-    return (
-      <div className="grid grid-cols-3 py-4 border-b border-border">
-        <div className={`text-center font-bold text-lg transition-colors duration-300 ${
-          isTie ? 'text-foreground' : isV1Better ? 'text-primary' : 'text-muted-foreground'
-        }`}>
-          {typeof v1 === 'number' ? v1.toLocaleString() : v1}{unit}
-          {!isTie && isV1Better && <span className="ml-1 text-xs">👑</span>}
-        </div>
-        <div className="text-center text-[10px] font-black text-muted-foreground uppercase tracking-widest">
-          {label}
-        </div>
-        <div className={`text-center font-bold text-lg transition-colors duration-300 ${
-          isTie ? 'text-foreground' : !isV1Better ? 'text-primary' : 'text-muted-foreground'
-        }`}>
-          {typeof v2 === 'number' ? v2.toLocaleString() : v2}{unit}
-          {!isTie && !isV1Better && <span className="ml-1 text-xs">👑</span>}
-        </div>
-      </div>
-    );
-  };
+  const nameA = result?.a.stats.title || 'Channel A';
+  const nameB = result?.b.stats.title || 'Channel B';
+  const winsA = rows.filter(r => r.a > r.b).length;
+  const winsB = rows.filter(r => r.b > r.a).length;
 
   return (
-    <div className="space-y-8 animate-in">
-      {/* Input Section */}
-      <div className="flex flex-col md:flex-row gap-4">
-        <input 
-          value={ch1Query} 
-          onChange={e => setCh1Query(e.target.value)} 
-          placeholder="Channel 1 (ID, @handle, or URL)" 
-          className="flex-1 bg-card border border-border rounded-2xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:ring-2 ring-primary/20 outline-none transition-all duration-300" 
-        />
-        <div className="flex items-center justify-center font-black text-muted-foreground">VS</div>
-        <input 
-          value={ch2Query} 
-          onChange={e => setCh2Query(e.target.value)} 
-          placeholder="Channel 2 (ID, @handle, or URL)" 
-          className="flex-1 bg-card border border-border rounded-2xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:ring-2 ring-primary/20 outline-none transition-all duration-300" 
-        />
-        <motion.button 
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleCompare} 
-          disabled={loading}
-          className="bg-primary text-primary-foreground px-8 py-3 rounded-2xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 hover:bg-primary/90 transition-all duration-300 active:scale-95 disabled:opacity-50"
-        >
-          {loading ? <IconLoader className="w-4 h-4" /> : <IconChart className="w-4 h-4" />}
-          {loading ? 'Analyzing...' : 'Compare'}
-        </motion.button>
-      </div>
+    <div>
+      <PageHeader title="Benchmark Kompetitor" subtitle={`Bandingkan dua channel berdasarkan statistik dan ${SAMPLE_SIZE} video terbaru.`} />
 
-      {/* Error Message */}
-      {error && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-destructive/10 border border-destructive/20 rounded-2xl text-destructive text-sm"
+      <form
+        className="yt-card flex flex-col gap-3 p-4 md:flex-row md:items-center"
+        onSubmit={e => {
+          e.preventDefault();
+          handleCompare();
+        }}
+      >
+        <div className="flex flex-1 items-center gap-2">
+          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_A }} />
+          <input value={queryA} onChange={e => setQueryA(e.target.value)} placeholder="Channel A — @handle, ID, atau URL" className="yt-input" />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setQueryA(queryB);
+            setQueryB(queryA);
+          }}
+          className="yt-icon-btn self-center"
+          aria-label="Tukar channel"
+          title="Tukar"
         >
-          {error}
-        </motion.div>
+          <ArrowLeftRight className="h-5 w-5" strokeWidth={1.75} />
+        </button>
+        <div className="flex flex-1 items-center gap-2">
+          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_B }} />
+          <input value={queryB} onChange={e => setQueryB(e.target.value)} placeholder="Channel B — @handle, ID, atau URL" className="yt-input" />
+        </div>
+        <button type="submit" disabled={loading} className="yt-pill-blue">
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {loading ? 'Membandingkan…' : 'Bandingkan'}
+        </button>
+      </form>
+
+      {error && <p className="mt-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+
+      {!result && !loading && (
+        <EmptyState
+          icon={Swords}
+          title="Bandingkan dua channel"
+          description="Lihat siapa yang unggul dalam subscriber, views, engagement, dan frekuensi upload, plus tag yang sama-sama dipakai."
+        />
       )}
 
-      {/* Results */}
-      <AnimatePresence>
-        {result && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="space-y-6"
-          >
-            {/* Channel Headers */}
-            <div className="bg-card rounded-3xl p-8 border border-border shadow-premium">
-              <div className="grid grid-cols-3 mb-10">
-                <div className="flex flex-col items-center gap-3">
-                  <img src={result.ch1.stats.avatar} className="w-20 h-20 rounded-full border-4 border-primary/20 object-cover" alt="Channel A" />
-                  <span className="font-black text-foreground text-center">Channel A</span>
-                  {result.ch1.avgEngagementRate > result.ch2.avgEngagementRate && (
-                    <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">
-                      Higher ER 🔥
+      {result && (
+        <div className="mt-6 space-y-6">
+          <div className="yt-card p-4 sm:p-6">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+              {[result.a, result.b].map((ch, idx) => (
+                <div key={idx} className={cn('flex flex-col items-center text-center', idx === 1 && 'col-start-3')}>
+                  <div className="relative">
+                    <ChannelAvatar name={ch.stats.title || ''} src={ch.stats.avatar} size={80} className="border-4" />
+                    <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-card" style={{ backgroundColor: idx === 0 ? COLOR_A : COLOR_B }} />
+                  </div>
+                  <p className="mt-3 line-clamp-1 font-medium text-foreground">{ch.stats.title}</p>
+                  <p className="text-xs text-muted-foreground">{ch.stats.customUrl}</p>
+                </div>
+              ))}
+              <div className="col-start-2 row-start-1 flex flex-col items-center">
+                <span className="text-3xl font-medium tabular-nums text-foreground">
+                  {winsA}<span className="mx-2 text-muted-foreground">:</span>{winsB}
+                </span>
+                <span className="text-xs text-muted-foreground">metrik unggul</span>
+              </div>
+            </div>
+
+            <div className="mt-6 divide-y divide-border">
+              {rows.map(r => {
+                const aWins = r.a > r.b;
+                const bWins = r.b > r.a;
+                return (
+                  <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-3 text-sm">
+                    <span className={cn('flex items-center justify-end gap-1.5 tabular-nums', aWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+                      {aWins && <Crown className="h-4 w-4 text-warning" />}
+                      {r.fmt(r.a)}
                     </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-center">
-                  <div className="px-4 py-1 bg-secondary rounded-full text-[10px] font-black text-muted-foreground">
-                    BENCHMARK
-                  </div>
-                </div>
-                <div className="flex flex-col items-center gap-3">
-                  <img src={result.ch2.stats.avatar} className="w-20 h-20 rounded-full border-4 border-destructive/20 object-cover" alt="Channel B" />
-                  <span className="font-black text-foreground text-center">Channel B</span>
-                  {result.ch2.avgEngagementRate > result.ch1.avgEngagementRate && (
-                    <span className="px-2 py-0.5 bg-destructive/10 text-destructive text-[10px] font-bold rounded-full">
-                      Higher ER 🔥
+                    <span className="w-36 text-center text-xs text-muted-foreground sm:w-48">{r.label}</span>
+                    <span className={cn('flex items-center gap-1.5 tabular-nums', bWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+                      {r.fmt(r.b)}
+                      {bWins && <Crown className="h-4 w-4 text-warning" />}
                     </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Metrics Comparison */}
-              <MetricRow label="Subscribers" v1={result.ch1.stats.subCountRaw} v2={result.ch2.stats.subCountRaw} />
-              <MetricRow label="Total Views" v1={result.ch1.stats.viewCount} v2={result.ch2.stats.viewCount} />
-              <MetricRow label="Video Count" v1={result.ch1.stats.videoCount} v2={result.ch2.stats.videoCount} />
-              <MetricRow 
-                label="Upload/Week" 
-                v1={result.ch1.uploadFrequency.toFixed(1)} 
-                v2={result.ch2.uploadFrequency.toFixed(1)} 
-              />
-              <MetricRow 
-                label="Avg ER%" 
-                v1={result.ch1.avgEngagementRate.toFixed(2)} 
-                v2={result.ch2.avgEngagementRate.toFixed(2)} 
-                unit="%" 
-              />
+                  </div>
+                );
+              })}
             </div>
+          </div>
 
-            {/* Radar Chart */}
-            <div className="bg-card rounded-3xl p-8 border border-border shadow-premium">
-              <h3 className="text-lg font-black text-foreground mb-6 flex items-center gap-2">
-                <IconChart className="w-5 h-5 text-primary" />
-                Performance Comparison
-              </h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke="hsl(var(--border))" />
-                    <PolarAngleAxis dataKey="metric" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-                    <PolarRadiusAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
-                    <Radar 
-                      name="Channel A" 
-                      dataKey="ch1" 
-                      stroke="hsl(var(--primary))" 
-                      fill="hsl(var(--primary))" 
-                      fillOpacity={0.3} 
-                    />
-                    <Radar 
-                      name="Channel B" 
-                      dataKey="ch2" 
-                      stroke="hsl(var(--destructive))" 
-                      fill="hsl(var(--destructive))" 
-                      fillOpacity={0.3} 
-                    />
-                    <Legend />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
+          <SectionCard title="Profil performa" description="Nilai dinormalisasi: channel terbaik di tiap metrik = 100">
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData} outerRadius="72%">
+                  <PolarGrid stroke="hsl(var(--border))" />
+                  <PolarAngleAxis dataKey="metric" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                  <Radar name={nameA} dataKey="A" stroke={COLOR_A} fill={COLOR_A} fillOpacity={0.25} />
+                  <Radar name={nameB} dataKey="B" stroke={COLOR_B} fill={COLOR_B} fillOpacity={0.2} />
+                  <Tooltip
+                    formatter={(v: number) => v.toFixed(0)}
+                    contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
+          </SectionCard>
 
-            {/* Engagement Bar Chart */}
-            <div className="bg-card rounded-3xl p-8 border border-border shadow-premium">
-              <h3 className="text-lg font-black text-foreground mb-6 flex items-center gap-2">
-                <IconTrending className="w-5 h-5 text-primary" />
-                Engagement Rate Comparison
-              </h3>
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={engagementBarData} layout="vertical">
-                    <XAxis type="number" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} width={100} />
-                    <Tooltip 
-                      formatter={(value: number) => [`${value.toFixed(2)}%`, 'Engagement Rate']}
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '12px'
-                      }}
-                    />
-                    <Bar dataKey="value" radius={[0, 8, 8, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Tag Analysis */}
-            <div className="bg-card rounded-3xl p-8 border border-border shadow-premium">
-              <h3 className="text-lg font-black text-foreground mb-6">Tag Overlap Analysis</h3>
-              
-              <div className="grid md:grid-cols-3 gap-6">
-                {/* Overlap Tags */}
-                <div>
-                  <h4 className="text-sm font-bold text-primary mb-3">
-                    Shared Tags ({result.tagOverlap.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {result.tagOverlap.slice(0, 10).map(tag => (
-                      <span key={tag} className="px-2 py-1 bg-primary/10 text-primary text-xs font-medium rounded-lg">
-                        {tag}
+          <SectionCard title="Analisis tag" description={`Dari 25 tag teratas masing-masing channel`}>
+            <div className="grid gap-6 md:grid-cols-3">
+              {[
+                { title: `Sama (${result.tagOverlap.length})`, tags: result.tagOverlap, cls: 'bg-secondary text-foreground' },
+                { title: `Hanya ${nameA} (${result.uniqueA.length})`, tags: result.uniqueA, cls: 'bg-primary/10 text-primary' },
+                { title: `Hanya ${nameB} (${result.uniqueB.length})`, tags: result.uniqueB, cls: 'bg-youtube-red/10 text-destructive' },
+              ].map(col => (
+                <div key={col.title}>
+                  <h3 className="mb-3 line-clamp-1 text-sm font-medium text-foreground">{col.title}</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {col.tags.map(t => (
+                      <span key={t} className={cn('rounded-md px-2 py-1 text-xs', col.cls)}>
+                        {t}
                       </span>
                     ))}
-                    {result.tagOverlap.length === 0 && (
-                      <span className="text-muted-foreground text-sm italic">No overlap</span>
-                    )}
+                    {col.tags.length === 0 && <span className="text-sm text-muted-foreground">—</span>}
                   </div>
                 </div>
-
-                {/* Channel A Unique */}
-                <div>
-                  <h4 className="text-sm font-bold text-foreground mb-3">
-                    Channel A Only ({result.uniqueTags1.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {result.uniqueTags1.slice(0, 8).map(tag => (
-                      <span key={tag} className="px-2 py-1 bg-secondary text-foreground text-xs font-medium rounded-lg">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Channel B Unique */}
-                <div>
-                  <h4 className="text-sm font-bold text-destructive mb-3">
-                    Channel B Only ({result.uniqueTags2.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {result.uniqueTags2.slice(0, 8).map(tag => (
-                      <span key={tag} className="px-2 py-1 bg-destructive/10 text-destructive text-xs font-medium rounded-lg">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Empty State */}
-      {!result && !loading && !error && (
-        <div className="text-center py-20 text-muted-foreground font-medium italic">
-          Masukkan Channel ID atau @handle untuk membandingkan performa
+          </SectionCard>
         </div>
       )}
     </div>

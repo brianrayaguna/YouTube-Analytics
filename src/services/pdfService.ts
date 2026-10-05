@@ -110,11 +110,12 @@ const getGradeColor = (grade: string): [number, number, number] => {
   }
 };
 
+// Sama dengan ambang nilai di performanceScoreService agar PDF konsisten dengan UI
 const getGrade = (score: number): string => {
-  if (score >= 90) return 'A';
-  if (score >= 75) return 'B';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'D';
+  if (score >= 80) return 'A';
+  if (score >= 60) return 'B';
+  if (score >= 40) return 'C';
+  if (score >= 20) return 'D';
   return 'F';
 };
 

@@ -23,37 +23,22 @@ export interface VideoItem {
 }
 
 export interface ChannelStats {
+  channelId?: string;
+  title?: string;
   subscriberCount: string;
   subCountRaw: number;
   viewCount: string;
+  viewCountRaw?: number;
   videoCount: string;
+  videoCountRaw?: number;
   customUrl: string;
   description: string;
   avatar: string;
   banner?: string;
+  hiddenSubscriberCount?: boolean;
 }
 
-export interface AIAnalysisResult {
-  hookScore: number;
-  sentiment: string;
-  suggestions: string[];
-  potentialViralFactor: string;
-}
-
-export interface ScriptOutline {
-  hook: string;
-  intro: string;
-  corePoints: string[];
-  retentionTricks: string[];
-  cta: string;
-}
-
-export interface ContentGapResult {
-  trendingTopics: string[];
-  missedOpportunities: string[];
-  suggestedFormat: string;
-  explanation: string;
-}
+export type AnalysisSource = 'channel' | 'playlist' | 'search' | 'trending';
 
 export interface AnalyzedData {
   videos: VideoItem[];
@@ -61,40 +46,55 @@ export interface AnalyzedData {
   channelId?: string;
   channelStats?: ChannelStats;
   totalFound: number;
+  source?: AnalysisSource;
+  query?: string;
+  /** Pesan informasi tambahan (mis. batas hasil pencarian API) */
+  notice?: string;
 }
 
-// Navigation Modes - Updated with new modes
-export type AnalysisMode = 'dashboard' | 'trending' | 'insights' | 'benchmark' | 'saved' | 'content_gap' | 'history' | 'schedule' | 'title_score' | 'downloader';
+// Mode navigasi
+export type AnalysisMode =
+  | 'dashboard'
+  | 'trending'
+  | 'insights'
+  | 'benchmark'
+  | 'saved'
+  | 'content_gap'
+  | 'history'
+  | 'schedule'
+  | 'title_score'
+  | 'downloader';
 
-// Content Type Filter
 export type ContentTypeFilter = 'all' | 'long' | 'shorts';
 
 export type FetchLimit = 10 | 50 | 100 | 500 | 1000 | 5000;
 
-export type SortOption = 'newest' | 'oldest' | 'popular' | 'most_liked' | 'highest_er';
+export type SortOption = 'newest' | 'oldest' | 'popular' | 'most_liked' | 'highest_er' | 'most_commented';
 
 export type DurationRange = 'all' | 'under_1' | '1_5' | '5_20' | 'over_20';
 
-export type MinViewsOption = 0 | 1000 | 5000 | 10000 | 25000 | 50000 | 100000 | 250000 | 500000 | 1000000 | 5000000;
+export type DateRangeFilter = 'all' | '7d' | '30d' | '90d' | '1y';
 
-export type MinLikesOption = 0 | 100 | 500 | 1000 | 5000 | 10000 | 50000 | 100000;
-
-export type ToastType = 'success' | 'error' | 'loading';
+export type ToastType = 'success' | 'error' | 'loading' | 'info';
 
 export interface ToastState {
+  id: number;
   message: string;
   type: ToastType;
 }
+
+export type ShowToast = (message: string, type?: ToastType) => void;
 
 export interface TrendingRegion {
   code: string;
   name: string;
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- library global dari CDN tanpa tipe */
 declare global {
   interface Window {
-    JSZip: any;
-    saveAs: any;
+    saveAs?: any;
     XLSX: any;
   }
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */

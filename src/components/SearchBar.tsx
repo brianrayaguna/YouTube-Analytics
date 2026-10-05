@@ -1,170 +1,269 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { IconSearch, IconHistory, IconSparkles, IconMic } from '../constants/icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, Mic, History, X, ArrowLeft } from 'lucide-react';
 import { getSuggestions } from '../services/suggestionService';
+import { getSearchHistory, removeFromSearchHistory, subscribeSearchHistory, SearchHistoryItem } from '../services/historyService';
+import { ShowToast } from '../types';
+import { cn } from '@/lib/utils';
 
 interface SearchBarProps {
   query: string;
   setQuery: (q: string) => void;
   onSearch: (q: string) => void;
-  placeholder?: string;
+  onToast?: ShowToast;
+  inputRef?: React.RefObject<HTMLInputElement>;
+  /** Mode mobile: tampilkan tombol kembali */
+  onBack?: () => void;
+  autoFocus?: boolean;
 }
 
-// Extend window for Speech Recognition
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API belum ada di lib.dom
+type SpeechRecognitionCtor = new () => any;
 
-const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, placeholder }) => {
+const getSpeechRecognition = (): SpeechRecognitionCtor | undefined => {
+  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+  return w.SpeechRecognition || w.webkitSpeechRecognition;
+};
+
+type DropdownItem = { kind: 'history'; value: string; item: SearchHistoryItem } | { kind: 'suggestion'; value: string };
+
+const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToast, inputRef, onBack, autoFocus }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [history, setHistory] = useState<string[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [history, setHistory] = useState<SearchHistoryItem[]>(() => getSearchHistory());
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const [listening, setListening] = useState(false);
 
+  const localRef = useRef<HTMLInputElement>(null);
+  const ref = inputRef ?? localRef;
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestId = useRef(0);
+
+  useEffect(() => subscribeSearchHistory(() => setHistory(getSearchHistory())), []);
 
   useEffect(() => {
-    const saved = localStorage.getItem('yt_search_history');
-    if (saved) try { setHistory(JSON.parse(saved)); } catch {}
-  }, []);
-
-  const addToHistory = (val: string) => {
-    if (!val) return;
-    const newHistory = [val, ...history.filter(h => h !== val)].slice(0, 10);
-    setHistory(newHistory);
-    localStorage.setItem('yt_search_history', JSON.stringify(newHistory));
-  };
+    if (autoFocus) ref.current?.focus();
+  }, [autoFocus, ref]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setShowDropdown(false);
-        setIsFocused(false);
-      }
+    const onClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
+  // Saran pencarian (debounce 250ms, abaikan respons lama)
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query || query.includes('http')) {
+    const q = query.trim();
+    if (!q || /^https?:\/\/|youtu\.?be/i.test(q)) {
       setSuggestions([]);
       return;
     }
-    debounceRef.current = setTimeout(async () => {
-      const results = await getSuggestions(query);
-      setSuggestions(results);
-    }, 300);
+    const id = ++requestId.current;
+    const timer = setTimeout(async () => {
+      const results = await getSuggestions(q);
+      if (id === requestId.current) setSuggestions(results);
+    }, 250);
+    return () => clearTimeout(timer);
   }, [query]);
 
-  const handleSelect = (val: string) => {
-    setQuery(val);
-    setShowDropdown(false);
-    onSearch(val);
-    addToHistory(val);
-    setIsFocused(false);
+  const items: DropdownItem[] = (() => {
+    const q = query.trim().toLowerCase();
+    const matchedHistory = history
+      .filter(h => !q || h.query.toLowerCase().includes(q))
+      .slice(0, q ? 3 : 10)
+      .map(h => ({ kind: 'history' as const, value: h.query, item: h }));
+    const historyValues = new Set(matchedHistory.map(h => h.value.toLowerCase()));
+    const sugg = q
+      ? suggestions
+          .filter(s => !historyValues.has(s.toLowerCase()))
+          .slice(0, 10 - matchedHistory.length)
+          .map(s => ({ kind: 'suggestion' as const, value: s }))
+      : [];
+    return [...matchedHistory, ...sugg];
+  })();
+
+  useEffect(() => setHighlight(-1), [query]);
+
+  const submit = useCallback(
+    (value: string) => {
+      const v = value.trim();
+      if (!v) {
+        ref.current?.focus();
+        return;
+      }
+      setQuery(v);
+      setOpen(false);
+      ref.current?.blur();
+      onSearch(v);
+    },
+    [onSearch, ref, setQuery]
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' && items.length) {
+      e.preventDefault();
+      setOpen(true);
+      setHighlight(h => (h + 1) % items.length);
+    } else if (e.key === 'ArrowUp' && items.length) {
+      e.preventDefault();
+      setHighlight(h => (h <= 0 ? items.length - 1 : h - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      submit(highlight >= 0 && items[highlight] ? items[highlight].value : query);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      ref.current?.blur();
+    }
   };
 
   const startVoiceSearch = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Voice search is not supported in this browser');
+    const Recognition = getSpeechRecognition();
+    if (!Recognition) {
+      onToast?.('Pencarian suara tidak didukung browser ini', 'error');
       return;
     }
-
-    const recognition = new SpeechRecognition();
+    const recognition = new Recognition();
     recognition.lang = 'id-ID';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setQuery(transcript);
-      handleSelect(transcript);
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => {
+      setListening(false);
+      onToast?.('Tidak bisa mengakses mikrofon', 'error');
     };
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SpeechRecognitionEvent
+    recognition.onresult = (event: any) => submit(event.results[0][0].transcript);
     recognition.start();
   };
 
+  const showDropdown = open && focused && items.length > 0;
+
   return (
-    <div className="flex w-full items-center gap-3 relative" style={{ zIndex: 110 }} ref={wrapperRef}>
-      <div className="flex flex-1 items-center relative h-10">
-        <div className={`flex flex-1 items-center h-full border rounded-2xl overflow-hidden transition-all duration-300 ${
-          isFocused 
-            ? 'bg-background border-primary ring-4 ring-primary/10 shadow-lg shadow-primary/5' 
-            : 'bg-secondary border-border shadow-sm hover:shadow-md'
-        }`}>
-          <div className="pl-4 text-muted-foreground">
-            <IconSearch className="w-4 h-4" />
-          </div>
+    <div ref={wrapperRef} className="relative flex w-full items-center gap-2 md:gap-4">
+      {onBack && (
+        <button type="button" onClick={onBack} className="yt-icon-btn" aria-label="Kembali">
+          <ArrowLeft className="h-6 w-6" strokeWidth={1.75} />
+        </button>
+      )}
+
+      <form
+        role="search"
+        className="relative flex h-10 flex-1 items-stretch"
+        onSubmit={e => {
+          e.preventDefault();
+          submit(query);
+        }}
+      >
+        <div
+          className={cn(
+            'flex flex-1 items-center rounded-l-full border bg-background pl-4 pr-1 transition-colors',
+            focused ? 'border-primary shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] md:ml-0' : 'border-input'
+          )}
+        >
+          {focused && <Search className="mr-3 hidden h-5 w-5 shrink-0 text-foreground sm:block" strokeWidth={1.75} />}
           <input
-            className="w-full bg-transparent border-none text-foreground placeholder-muted-foreground focus:outline-none text-sm px-3 font-medium h-full"
-            placeholder={placeholder || "Search channel, URL or topic..."}
+            ref={ref}
+            type="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Cari"
+            className="h-full w-full min-w-0 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+            placeholder="Cari channel, @handle, URL, atau topik"
             value={query}
-            onChange={e => setQuery(e.target.value)}
-            onFocus={() => { setIsFocused(true); setShowDropdown(true); }}
-            onKeyDown={e => e.key === 'Enter' && handleSelect(query)}
+            onChange={e => {
+              setQuery(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => {
+              setFocused(true);
+              setOpen(true);
+            }}
+            onBlur={() => setFocused(false)}
+            onKeyDown={handleKeyDown}
           />
           {query && (
-            <button 
-              onClick={() => setQuery('')} 
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors mr-1 font-bold text-lg"
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => {
+                setQuery('');
+                ref.current?.focus();
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-secondary"
+              aria-label="Hapus teks"
             >
-              ×
+              <X className="h-5 w-5" strokeWidth={1.75} />
             </button>
           )}
-
-          {isFocused && showDropdown && (suggestions.length > 0 || history.length > 0) && (
-            <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-card rounded-2xl shadow-premium-lg border border-border z-[200] py-2 overflow-hidden animate-scale-in">
-              {history.length > 0 && !query && (
-                <div className="px-4 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  Recent Searches
-                </div>
-              )}
-              {(!query ? history : suggestions).slice(0, 8).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-accent cursor-pointer text-foreground text-sm font-medium transition-colors"
-                  onClick={() => handleSelect(item)}
-                >
-                  {query ? (
-                    <IconSparkles className="text-primary w-3.5 h-3.5" />
-                  ) : (
-                    <IconHistory className="text-muted-foreground w-4 h-4" />
-                  )}
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-
         <button
-          onClick={() => handleSelect(query)}
-          className="h-full px-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-2xl ml-2 font-bold text-sm transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center gap-2"
+          type="submit"
+          className="flex w-16 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-input bg-secondary/70 transition-colors hover:bg-accent"
+          aria-label="Analisis"
+          title="Analisis"
         >
-          Analyze
+          <Search className="h-5 w-5" strokeWidth={1.75} />
         </button>
-      </div>
 
-      <button 
+        {showDropdown && (
+          <ul
+            className="absolute left-0 right-16 top-[calc(100%+4px)] z-[200] overflow-hidden rounded-xl border border-border bg-popover py-4 shadow-popover"
+            role="listbox"
+          >
+            {items.map((it, idx) => (
+              <li
+                key={`${it.kind}-${it.value}`}
+                role="option"
+                aria-selected={highlight === idx}
+                onMouseDown={e => e.preventDefault()}
+                onMouseEnter={() => setHighlight(idx)}
+                onClick={() => submit(it.value)}
+                className={cn(
+                  'group flex h-8 cursor-default items-center gap-4 px-4 text-base',
+                  highlight === idx && 'bg-secondary'
+                )}
+              >
+                {it.kind === 'history' ? (
+                  <History className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.75} />
+                ) : (
+                  <Search className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.75} />
+                )}
+                <span className={cn('flex-1 truncate', it.kind === 'history' && 'text-[#681da8] dark:text-[#c58af9]')}>
+                  {it.value}
+                </span>
+                {it.kind === 'history' && (
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      removeFromSearchHistory(it.item.timestamp);
+                    }}
+                    className="text-xs text-primary opacity-0 hover:underline group-hover:opacity-100 group-aria-selected:opacity-100"
+                  >
+                    Hapus
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
+
+      <button
+        type="button"
         onClick={startVoiceSearch}
-        className={`hidden lg:flex items-center justify-center w-10 h-10 rounded-2xl transition-all ${
-          isListening 
-            ? 'bg-primary text-primary-foreground animate-pulse' 
-            : 'bg-secondary border border-border hover:bg-accent text-muted-foreground'
-        }`}
+        className={cn(
+          'yt-icon-btn hidden bg-secondary sm:inline-flex',
+          listening && 'animate-pulse bg-youtube-red text-white hover:bg-youtube-red'
+        )}
+        aria-label="Telusuri dengan suara"
+        title="Telusuri dengan suara"
       >
-        <IconMic className="w-4 h-4" />
+        <Mic className="h-5 w-5" strokeWidth={1.75} />
       </button>
     </div>
   );

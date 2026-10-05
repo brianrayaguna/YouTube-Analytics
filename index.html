@@ -2,25 +2,35 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YouTube Analyzer Pro - Copy Links & Download Thumbnails</title>
-    <meta name="description" content="Aplikasi YouTube Analyzer untuk menganalisis channel, playlist, dan video. Copy link dan download thumbnail dalam jumlah besar." />
-    <meta name="author" content="Lovable" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>YT Analyzer Pro</title>
+    <meta name="description" content="Analisis channel, playlist, dan video YouTube. Statistik, skor judul & thumbnail, jadwal upload, content gap, export CSV/Excel/PDF, dan download thumbnail massal." />
     <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)" />
 
-    <meta property="og:title" content="YouTube Analyzer Pro" />
-    <meta property="og:description" content="Analyze YouTube channels, copy links, and download thumbnails in bulk." />
+    <meta property="og:title" content="YT Analyzer Pro" />
+    <meta property="og:description" content="Analisis channel YouTube, copy link, dan download thumbnail secara massal." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://i.ytimg.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
 
-    <!-- External Libraries for ZIP and Excel -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Terapkan tema sebelum render agar tidak berkedip -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('yt_dark_mode');
+          var dark = saved === null
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : saved === 'true';
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
+
   </head>
 
   <body>
