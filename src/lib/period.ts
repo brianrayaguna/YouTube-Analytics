@@ -57,16 +57,23 @@ export const defaultCustomPeriod = (now: Date = new Date()): CustomPeriod => ({
   to: toDateInput(now),
 });
 
+/** Mundur n bulan kalender; tanggal dijepit ke akhir bulan (31 Mar − 1 bulan = 28/29 Feb, bukan 3 Mar). */
+export const subtractMonths = (date: Date, months: number): Date => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d;
+};
+
 export const resolvePeriod = (id: PeriodId, now: Date = new Date(), custom?: CustomPeriod): PeriodRange => {
   const def = PERIODS.find(p => p.id === id) ?? PERIODS.find(p => p.id === 'all')!;
   const end = new Date(now);
 
   if (def.days) return { id: def.id, label: def.label, start: new Date(now.getTime() - def.days * DAY), end };
-  if (def.months) {
-    const start = new Date(now);
-    start.setMonth(start.getMonth() - def.months);
-    return { id: def.id, label: def.label, start, end };
-  }
+  if (def.months) return { id: def.id, label: def.label, start: subtractMonths(now, def.months), end };
   if (def.id === 'ytd') return { id: def.id, label: def.label, start: new Date(now.getFullYear(), 0, 1), end };
   if (def.id === 'custom') {
     const c = custom ?? defaultCustomPeriod(now);

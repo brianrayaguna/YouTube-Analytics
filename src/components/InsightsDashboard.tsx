@@ -197,6 +197,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview }) => {
     const list = Array.from(map.values()).map(t => ({ ...t, avgViews: t.views / t.count }));
     const withTags = videos.filter(v => v.tags.length > 0).length;
     return {
+      unique: list.length,
       top: list.sort((a, b) => b.count - a.count || b.avgViews - a.avgViews).slice(0, 40),
       coverage: videos.length ? (withTags / videos.length) * 100 : 0,
       avgTags: avg(videos.map(v => v.tags.length)),
@@ -440,7 +441,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview }) => {
               <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
                 <StatCard label="Video dengan tag" value={`${tagStats.coverage.toFixed(0)}%`} />
                 <StatCard label="Rata-rata tag/video" value={tagStats.avgTags.toFixed(1)} />
-                <StatCard label="Tag unik" value={formatFullNumber(tagStats.top.length)} hint="40 teratas ditampilkan" />
+                <StatCard label="Tag unik" value={formatFullNumber(tagStats.unique)} hint={tagStats.unique > 40 ? '40 teratas ditampilkan' : undefined} />
                 <StatCard label="Panjang judul" value={`${tagStats.avgTitleLength.toFixed(0)}`} hint="karakter rata-rata (ideal 40–60)" />
               </div>
               <SectionCard title="Tag paling sering dipakai" description="Frekuensi dan rata-rata views video yang memakai tag tersebut">
