@@ -176,6 +176,7 @@ describe('exports', () => {
     expect((ws.getCell('C2').value as { hyperlink: string }).hyperlink).toBe('https://www.youtube.com/watch?v=aaaaaaaaaaa');
     expect(ws.getCell('G1').value).toBe('Hari upload');
     expect(ws.getCell('G2').value).toBe(report.rows[0].uploadDay);
+    expect(ws.getCell('H2').value).toBe(report.rows[0].uploadTime);
     expect(ws.getCell('L4').value).toBe('Disembunyikan');
     const sched = wb.getWorksheet('Jadwal Upload')!;
     const texts: string[] = [];
@@ -183,6 +184,8 @@ describe('exports', () => {
     expect(texts).toContain('Hari terbaik');
     expect(texts.some(t => t.includes('PERINGKAT') || t.includes('PERFORMA PER HARI'))).toBe(true);
     expect(texts).toContain('Senin');
+    expect(texts).toContain('DETAIL UPLOAD PER VIDEO');
+    expect(texts).toContain(report.rows[0].uploadTime);
   });
 
   it('PDF: valid document with a schedule page', async () => {
@@ -201,13 +204,24 @@ describe('exports', () => {
     expect(sc.groups.day.reduce((a, g) => a + g.uploads, 0)).toBe(3);
     expect(sc.groups.hour.length).toBeGreaterThan(0);
     expect(report.rows[0].uploadHour).toMatch(/^\d{2}\.00$/);
+    expect(report.rows[0].uploadTime).toMatch(/^\d{2}\.\d{2}$/);
+    const local = new Date(report.rows[0].publishedAt);
+    expect(report.rows[0].uploadDate).toBe(
+      `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`
+    );
 
     const json = JSON.parse(await buildJson(report, null).text());
     expect(json.schedule.groups.daypart.length).toBeGreaterThan(0);
     expect(json.videos[0].upload.day).toBe(report.rows[0].uploadDay);
+    expect(json.videos[0].upload.time).toBe(report.rows[0].uploadTime);
+    expect(json.videos[0].upload.date).toBe(report.rows[0].uploadDate);
 
     const csv = await buildCsv(report).text();
-    expect(csv.split('\r\n')[0]).toContain('Hari upload,Jam upload,Bagian hari');
+    expect(csv.split('\r\n')[0]).toContain('Tanggal upload,Hari upload,Jam upload,Bagian hari');
+    // jumlah kolom header = jumlah kolom data (tidak ada koma liar di header)
+    const cols = (line: string) => line.match(/("([^"]|"")*"|[^,]*)(,|$)/g)!.filter(Boolean).length;
+    expect(cols(csv.split('\r\n')[0].replace('\uFEFF', ''))).toBe(cols(csv.split('\r\n')[3]));
+    expect(csv.split('\r\n')[1]).toContain(`${report.rows[0].uploadDate},${report.rows[0].uploadDay},${report.rows[0].uploadTime}`);
     const schedCsv = (await buildScheduleCsv(report).text()).split('\r\n');
     expect(schedCsv[0]).toContain('Kelompok,Waktu,Upload');
     expect(schedCsv.some(l => l.startsWith('Hari,'))).toBe(true);

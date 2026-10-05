@@ -227,6 +227,12 @@ const VIDEO_COLUMNS = [
   { header: 'URL', key: 'url', width: 44 },
 ];
 
+/** Excel tidak mengenal zona waktu: geser agar sel menampilkan tanggal/jam lokal pembuat laporan. */
+const excelLocalDate = (iso: string) => {
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+};
+
 const TITLE_COL = VIDEO_COLUMNS.findIndex(c => c.key === 'title') + 1;
 const TAGS_COL = VIDEO_COLUMNS.findIndex(c => c.key === 'tags') + 1;
 
@@ -256,9 +262,9 @@ const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, Th
       title: { text: r.title, hyperlink: r.url },
       type: r.type,
       duration: r.duration,
-      published: new Date(r.publishedAt),
+      published: excelLocalDate(r.publishedAt),
       uday: r.uploadDay,
-      uhour: r.uploadHour,
+      uhour: r.uploadTime,
       upart: r.uploadDaypart,
       age: r.ageDays,
       views: r.views,
@@ -491,6 +497,58 @@ const buildScheduleSheet = (wb: Workbook, report: Report) => {
   });
 
   groupTable('Performa per jam', sc.groups.hour);
+
+  // Detail upload per video (terbaru dulu)
+  heading('Detail upload per video', `Hari, tanggal, dan jam upload setiap video (zona waktu ${sc.timeZone}, ${sc.utcOffset}), urut dari yang terbaru.`);
+  const detailHeaders = ['Judul', 'Tanggal', 'Hari', 'Jam', 'Bagian hari', 'Views', 'Performa'];
+  const hdr = ws.getRow(r);
+  hdr.getCell(1).value = detailHeaders[0];
+  ws.mergeCells(r, 1, r, 9);
+  detailHeaders.slice(1).forEach((h, i) => {
+    ws.mergeCells(r, 10 + i * 2, r, 11 + i * 2);
+    hdr.getCell(10 + i * 2).value = h;
+  });
+  for (let col = 1; col <= 21; col++) {
+    const c = hdr.getCell(col);
+    c.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' }, size: 9 };
+    c.fill = solid(INK);
+    c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'center', indent: col === 1 ? 1 : 0 };
+  }
+  hdr.height = 20;
+  r++;
+  [...report.rows]
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
+    .forEach((v, i) => {
+      const row = ws.getRow(r);
+      ws.mergeCells(r, 1, r, 9);
+      const t = row.getCell(1);
+      t.value = { text: v.title, hyperlink: v.url };
+      t.font = { name: 'Arial', size: 9, color: { argb: 'FF065FD4' }, underline: true };
+      t.alignment = { indent: 1, vertical: 'middle' };
+      const vals: Array<[unknown, string | undefined]> = [
+        [excelLocalDate(v.publishedAt), 'dd mmm yyyy'],
+        [v.uploadDay, undefined],
+        [v.uploadTime, undefined],
+        [v.uploadDaypart, undefined],
+        [v.views, '#,##0'],
+        [v.reachRatio, '0.0"×"'],
+      ];
+      vals.forEach(([val, fmt], j) => {
+        ws.mergeCells(r, 10 + j * 2, r, 11 + j * 2);
+        const c = row.getCell(10 + j * 2);
+        c.value = val as never;
+        c.font = { name: 'Arial', size: 9, color: { argb: INK } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        if (fmt) c.numFmt = fmt;
+      });
+      row.getCell(20).fill = solid(performanceArgb(v.reachRatio));
+      for (let col = 1; col <= 21; col++) {
+        const c = row.getCell(col);
+        c.border = { bottom: { style: 'hair', color: { argb: BORDER } } };
+        if (i % 2 && col !== 20) c.fill = solid(ZEBRA);
+      }
+      r++;
+    });
 };
 
 const buildTagSheet = (wb: Workbook, report: Report) => {

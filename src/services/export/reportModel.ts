@@ -62,7 +62,12 @@ export interface ReportRow {
   thumbnails: { default: string; medium: string; high: string; standard: string; maxres: string };
   /** Waktu upload dalam zona waktu lokal pembuat laporan */
   uploadDay: string;
+  /** Slot jam, mis. "19.00" */
   uploadHour: string;
+  /** Jam tepat, mis. "19.42" */
+  uploadTime: string;
+  /** Tanggal lokal yyyy-mm-dd */
+  uploadDate: string;
   uploadDaypart: string;
   scored: VideoWithScores;
 }
@@ -239,9 +244,16 @@ export const buildReport = (videos: VideoItem[], context: ExportContext): Report
     },
     ...(() => {
       const d = new Date(v.publishedAt);
+      const pad = (n: number) => String(n).padStart(2, '0');
       return Number.isNaN(d.getTime())
-        ? { uploadDay: '-', uploadHour: '-', uploadDaypart: '-' }
-        : { uploadDay: DAYS[d.getDay()], uploadHour: formatHour(d.getHours()), uploadDaypart: daypartOf(d.getHours()) };
+        ? { uploadDay: '-', uploadHour: '-', uploadTime: '-', uploadDate: '-', uploadDaypart: '-' }
+        : {
+            uploadDay: DAYS[d.getDay()],
+            uploadHour: formatHour(d.getHours()),
+            uploadTime: `${pad(d.getHours())}.${pad(d.getMinutes())}`,
+            uploadDate: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+            uploadDaypart: daypartOf(d.getHours()),
+          };
     })(),
     scored: v,
   }));

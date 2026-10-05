@@ -739,6 +739,7 @@ const YouTubeAnalyzer: React.FC = () => {
         return data?.videos.length ? (
           <UploadScheduleAnalyzer
             data={data}
+            onPreview={handlePreview}
             fetchLimit={fetchLimit}
             onFetchMore={
               data.query && (data.source === 'channel' || data.source === 'playlist')

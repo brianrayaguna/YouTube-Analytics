@@ -185,7 +185,7 @@ ${s.topTags.length ? `<h2>Tag paling sering</h2><div class="tags">${s.topTags.sl
 <tbody>${rows
     .map(
       r => `<tr><td class="n">${r.no}</td><td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img class="thumb" loading="lazy" src="${esc(imgSrc(r.id, r.thumbnails.medium))}" alt=""></a></td>
-<td><a class="vt" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a><div class="sub">${r.type} • ${esc(r.duration)} • ${esc(formatDateId(r.publishedAt))} (${esc(r.uploadDay)} ${esc(r.uploadHour)})${r.isOutlier ? ' <span class="chip out">Outlier</span>' : ''}</div></td>
+<td><a class="vt" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a><div class="sub">${r.type} • ${esc(r.duration)} • ${esc(formatDateId(r.publishedAt))} (${esc(r.uploadDay)} pukul ${esc(r.uploadTime)})${r.isOutlier ? ' <span class="chip out">Outlier</span>' : ''}</div></td>
 <td class="n">${formatFullNumber(r.views)}</td><td class="n">${r.likes === null ? '—' : formatFullNumber(r.likes)}</td><td class="n">${r.comments === null ? '—' : formatFullNumber(r.comments)}</td>
 <td class="n">${r.engagementRate === null ? '—' : `${r.engagementRate.toFixed(2)}%`}</td><td class="n">${formatFullNumber(r.viewsPerDay)}</td>
 <td class="n">${gradeBadge(r.titleGrade, r.titleScore)}</td><td class="n">${gradeBadge(r.thumbnailGrade, r.thumbnailScore)}</td></tr>`

@@ -40,7 +40,15 @@ export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null
       type: r.type,
       channel: { id: r.channelId, title: r.channelTitle },
       publishedAt: r.publishedAt,
-      upload: { day: r.uploadDay, hour: r.uploadHour, daypart: r.uploadDaypart, timeZone: schedule.timeZone },
+      upload: {
+        date: r.uploadDate,
+        day: r.uploadDay,
+        time: r.uploadTime,
+        hourSlot: r.uploadHour,
+        daypart: r.uploadDaypart,
+        timeZone: schedule.timeZone,
+        utcOffset: schedule.utcOffset,
+      },
       ageDays: r.ageDays,
       duration: { seconds: r.durationSec, formatted: r.duration },
       statistics: { views: r.views, likes: r.likes, comments: r.comments, engagementRate: r.engagementRate, viewsPerDay: r.viewsPerDay },
@@ -69,14 +77,14 @@ const csvCell = (value: unknown): string => {
 
 export const buildCsv = (report: Report): Blob => {
   const headers = [
-    'No', 'Video ID', 'Judul', 'Jenis', 'Tanggal upload', 'Hari upload', 'Jam upload', 'Bagian hari', 'Umur (hari)', 'Durasi', 'Durasi (detik)',
+    'No', 'Video ID', 'Judul', 'Jenis', 'Tanggal upload', 'Hari upload', 'Jam upload', 'Bagian hari', 'Waktu upload UTC (ISO 8601)', 'Umur (hari)', 'Durasi', 'Durasi (detik)',
     'Views', 'Likes', 'Komentar', 'Engagement rate (%)', 'Views per hari', 'Rasio jangkauan', 'Outlier',
     'Skor judul', 'Nilai judul', 'Skor thumbnail', 'Nilai thumbnail', 'Keyakinan skor', 'Kelompok pembanding',
     'Tag', 'Channel', 'Channel ID', 'URL', 'Thumbnail URL (HQ)',
   ];
   const lines = report.rows.map(r =>
     [
-      r.no, r.id, r.title, r.type, r.publishedAt.slice(0, 10), r.uploadDay, r.uploadHour, r.uploadDaypart, r.ageDays, r.duration, r.durationSec,
+      r.no, r.id, r.title, r.type, r.uploadDate, r.uploadDay, r.uploadTime, r.uploadDaypart, r.publishedAt, r.ageDays, r.duration, r.durationSec,
       r.views, r.likes, r.comments, r.engagementRate, r.viewsPerDay, r.reachRatio, r.isOutlier ? 'Ya' : 'Tidak',
       r.titleScore, r.titleGrade, r.thumbnailScore, r.thumbnailGrade, r.scoreConfidence, r.scoreCohort,
       r.tags.join(' | '), r.channelTitle, r.channelId, r.url, r.thumbnails.high,
@@ -85,7 +93,7 @@ export const buildCsv = (report: Report): Blob => {
       .join(',')
   );
   // BOM agar Excel membaca UTF-8 (judul berbahasa Indonesia/emoji) dengan benar
-  return new Blob(['﻿' + [headers.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  return new Blob(['﻿' + [headers.map(csvCell).join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
 };
 
 const GROUP_TITLES: Array<[keyof Report['schedule']['groups'], string]> = [
@@ -112,5 +120,5 @@ export const buildScheduleCsv = (report: Report): Blob => {
       lines.push(['Hari × jam', `${day} ${String(hour).padStart(2, '0')}.00`, count, perf, '', '', '', '', `${sc.timeZone} (${sc.utcOffset})`].map(csvCell).join(','));
     })
   );
-  return new Blob(['﻿' + [headers.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  return new Blob(['﻿' + [headers.map(csvCell).join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
 };

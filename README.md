@@ -10,7 +10,7 @@ Aplikasi web untuk menganalisis channel, playlist, video, dan hasil pencarian Yo
 | **Trending** | Video trending per wilayah (14 negara). |
 | **Statistik Channel** | Pilih periode (24 jam, 3/7/14/28 hari, 1/3/6 bulan, 1 tahun, tahun ini, semua waktu, atau rentang kustom) berdasarkan tanggal upload, dengan perbandingan ke periode sebelumnya. KPI, grafik views & ER per video, format Video vs Shorts, konten teratas, analisis tag. |
 | **Skor Konten** | Skor 0–100 & nilai A–F untuk judul dan thumbnail (model v2: jangkauan vs video seusia, engagement, kualitas teks/HD), tingkat keyakinan, dan saran perbaikan judul. |
-| **Jadwal Upload** | Pilih periode (3/7 hari, 1/3 bulan, 1 tahun, kustom, dll.), format (Video/Shorts), dan jumlah video terbaru. Peta panas hari × jam (zona waktu lokal) dengan **performa disesuaikan umur video** (views ÷ perkiraan views video seusia, dibatasi 0,2×–5× per video, sampel kecil ditarik ke 1,0×), hari/jam terbaik, slot 3 jam terbaik & terendah dengan tingkat keyakinan, tabel peringkat yang bisa dikelompokkan per hari / jam / blok 3 jam / bagian hari / hari × jam, tombol ambil lebih banyak video. |
+| **Jadwal Upload** | Pilih periode (3/7 hari, 1/3 bulan, 1 tahun, kustom, dll.), format (Video/Shorts), dan jumlah video terbaru. Peta panas hari × jam (zona waktu lokal) dengan **performa disesuaikan umur video** (views ÷ perkiraan views video seusia, dibatasi 0,2×–5× per video, sampel kecil ditarik ke 1,0×), hari/jam terbaik, slot 3 jam terbaik & terendah dengan tingkat keyakinan, tabel peringkat yang bisa dikelompokkan per hari / jam / blok 3 jam / bagian hari / hari × jam, **detail upload per video** (hari, tanggal, jam:menit, bagian hari, umur, views, performa) yang bisa difilter dengan mengklik peta panas/peringkat/slot dan diurutkan, tombol ambil lebih banyak video. |
 | **Content Gap** | Topik trending yang belum dibahas channel. |
 | **Benchmark Kompetitor** | Bandingkan dua channel (subscriber, views, ER, frekuensi upload, tag). |
 | **Video Downloader** | **Perangkat ini**: unduh MP4 (hingga 4K) / MP3 langsung ke komputer memakai yt-dlp + ffmpeg lewat *Local Downloader*. **Layanan online**: Cobalt, Y2Mate, SaveFrom, SSYouTube (tab baru). |
@@ -42,6 +42,8 @@ Lainnya: salin semua link, ZIP thumbnail, mode **Pilih** untuk aksi massal.
 - **Skor judul** = 45% jangkauan + 15% engagement + 40% kualitas teks (panjang tanpa tagar, pemikat, kapitalisasi, kebersihan, kejelasan).
 - **Skor thumbnail** = 70% daya klik (jangkauan) + 15% engagement + 15% thumbnail HD 1280×720 (video panjang).
 - Nilai: A ≥ 80, B ≥ 65, C ≥ 50 (≈ rata-rata), D ≥ 35, F < 35. Keyakinan rendah bila video < 2 hari atau views < 100.
+
+Tanggal & jam upload lengkap (zona waktu perangkat) tampil di tooltip kartu video, pratinjau, tabel Konten di Statistik, dan semua file ekspor (kolom Tanggal, Hari, Jam upload jam:menit, Bagian hari).
 
 Pintasan: `/` atau `Ctrl/⌘ K` cari · `D` tema · `Esc` tutup · `← →` navigasi pratinjau · `S` simpan.
 

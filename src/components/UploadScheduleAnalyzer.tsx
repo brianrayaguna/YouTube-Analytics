@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { Lightbulb, TrendingUp, TrendingDown, Globe, Info, TriangleAlert, CalendarX2, ChevronDown, RefreshCw } from 'lucide-react';
-import { AnalyzedData, FetchLimit } from '../types';
+import React, { useMemo, useRef, useState } from 'react';
+import { Lightbulb, TrendingUp, TrendingDown, Globe, Info, TriangleAlert, CalendarX2, ChevronDown, RefreshCw, X, Clock } from 'lucide-react';
+import { AnalyzedData, FetchLimit, VideoItem } from '../types';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { PageHeader, StatCard, SectionCard, EmptyState } from './common';
 import PeriodPicker from './PeriodPicker';
-import { formatNumber, formatFullNumber, formatDate } from '../lib/format';
+import { formatNumber, formatFullNumber, formatDate, formatDateWithDay, formatTime, formatDateTimeLong } from '../lib/format';
 import {
   PeriodId,
   CustomPeriod,
@@ -37,6 +37,9 @@ import {
   groupSchedule,
   GROUPING_LABELS,
   ScheduleGrouping,
+  SlotMatch,
+  matchesSlot,
+  daypartOf,
 } from '../lib/schedule';
 import { cn } from '@/lib/utils';
 
@@ -46,7 +49,18 @@ interface UploadScheduleAnalyzerProps {
   fetchLimit?: FetchLimit;
   /** Analisis ulang channel/playlist dengan jumlah video lebih banyak */
   onFetchMore?: (limit: FetchLimit) => void;
+  onPreview?: (video: VideoItem) => void;
 }
+
+type ListSort = 'newest' | 'oldest' | 'performance' | 'views' | 'time';
+const LIST_SORTS: Array<[ListSort, string]> = [
+  ['newest', 'Terbaru'],
+  ['oldest', 'Terlama'],
+  ['performance', 'Performa'],
+  ['views', 'Views'],
+  ['time', 'Jam upload'],
+];
+const LIST_PAGE = 50;
 
 type Metric = 'performance' | 'views' | 'count';
 type FormatFilter = 'all' | 'video' | 'shorts';
@@ -95,7 +109,17 @@ const performanceColor = (p: number) => {
   return p >= 1 ? `hsl(var(--primary) / ${0.12 + strength * 0.88})` : `hsl(var(--yt-red) / ${0.12 + strength * 0.75})`;
 };
 
-const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, fetchLimit, onFetchMore }) => {
+const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, fetchLimit, onFetchMore, onPreview }) => {
+  const [listFilter, setListFilter] = useState<{ match: SlotMatch; label: string } | null>(null);
+  const [listSort, setListSort] = useState<ListSort>('newest');
+  const [listLimit, setListLimit] = useState(LIST_PAGE);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** Tampilkan daftar video untuk slot tertentu lalu gulir ke daftar */
+  const showSlot = (match: SlotMatch, label: string) => {
+    setListFilter({ match, label });
+    setListLimit(LIST_PAGE);
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
   const [metric, setMetric] = useState<Metric>('performance');
   const [periodId, setPeriodId] = useState<PeriodId>(() => readLocal(PERIOD_KEY, v => (isPeriodId(v) ? v : 'all')));
   const [custom, setCustom] = useState<CustomPeriod>(() =>
@@ -168,6 +192,37 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
   const analysis = useMemo(() => analyzeSchedule(scope.videos), [scope.videos]);
   const groupRows = useMemo(() => groupSchedule(analysis.points, grouping), [analysis.points, grouping]);
   const maxGroupPerf = Math.max(1, ...groupRows.map(r => r.performance));
+
+  // Detail upload per video (waktu lokal)
+  const uploadRows = useMemo(() => {
+    const reach = new Map(analysis.points.map(p => [p.id, p.reach ?? 1]));
+    const now = Date.now();
+    return scope.videos
+      .map(v => {
+        const d = new Date(v.publishedAt);
+        return {
+          video: v,
+          time: d.getTime(),
+          day: d.getDay(),
+          hour: d.getHours(),
+          minuteOfDay: d.getHours() * 60 + d.getMinutes(),
+          reach: reach.get(v.id) ?? 1,
+          ageDays: Math.max(0, Math.floor((now - d.getTime()) / 86400000)),
+        };
+      })
+      .filter(r => !Number.isNaN(r.time));
+  }, [scope.videos, analysis.points]);
+  const listRows = useMemo(() => {
+    const rows = listFilter ? uploadRows.filter(r => matchesSlot(listFilter.match, r.day, r.hour)) : [...uploadRows];
+    const cmp: Record<ListSort, (a: (typeof rows)[number], b: (typeof rows)[number]) => number> = {
+      newest: (a, b) => b.time - a.time,
+      oldest: (a, b) => a.time - b.time,
+      performance: (a, b) => b.reach - a.reach,
+      views: (a, b) => b.video.viewCountRaw - a.video.viewCountRaw,
+      time: (a, b) => a.minuteOfDay - b.minuteOfDay || b.time - a.time,
+    };
+    return rows.sort(cmp[listSort]);
+  }, [uploadRows, listFilter, listSort]);
   const videos = scope.videos;
   const uploadsPerWeek = scope.days >= 1 ? videos.length / (scope.days / 7) : videos.length;
   const shortsCount = useMemo(() => allVideos.filter(v => v.isShort).length, [allVideos]);
@@ -349,7 +404,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
           <SectionCard
             className="mt-6"
             title="Peta panas upload"
-            description={METRIC_DESCRIPTION[metric]}
+            description={`${METRIC_DESCRIPTION[metric]}. Klik sel untuk melihat videonya.`}
             actions={
               <div className="flex flex-wrap gap-2">
                 {([
@@ -378,13 +433,21 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
                     {HOURS.map(h => {
                       const cell = analysis.cells[d][h];
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={h}
-                          className={cn('aspect-square rounded-[3px]', !cell.count && 'bg-secondary')}
+                          disabled={!cell.count}
+                          onClick={() => showSlot({ day: d, from: h, to: h + 1 }, `${DAYS[d]}, ${formatHour(h)}–${formatHour(h + 1)}`)}
+                          className={cn(
+                            'aspect-square rounded-[3px] transition-shadow enabled:cursor-pointer enabled:hover:ring-2 enabled:hover:ring-foreground/60',
+                            !cell.count && 'bg-secondary',
+                            listFilter?.match.day === d && listFilter.match.from === h && listFilter.match.to === h + 1 && 'ring-2 ring-foreground'
+                          )}
                           style={cellStyle(cell)}
+                          aria-label={`${DAYS[d]} ${formatHour(h)}: ${cell.count} video`}
                           title={
                             cell.count
-                              ? `${DAYS[d]} ${formatHour(h)} — ${cell.count} video • performa ${formatPerformance(cell.performance)} • median ${formatNumber(cell.medianViews)} views`
+                              ? `${DAYS[d]} ${formatHour(h)} — ${cell.count} video • performa ${formatPerformance(cell.performance)} • median ${formatNumber(cell.medianViews)} views. Klik untuk melihat videonya.`
                               : `${DAYS[d]} ${formatHour(h)} — belum ada upload`
                           }
                         />
@@ -419,13 +482,19 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
           </SectionCard>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <SectionCard title="Performa per hari" description="1,0× = setara video seusia. Batang pudar = kurang dari 2 upload.">
+            <SectionCard title="Performa per hari" description="1,0× = setara video seusia. Batang pudar = kurang dari 2 upload. Klik untuk melihat videonya.">
               <ul className="space-y-2.5">
                 {DAY_ORDER.map(d => {
                   const row = analysis.byDay[d];
                   const reliable = row.count >= MIN_SLOT_UPLOADS;
                   return (
-                    <li key={d} className="grid grid-cols-[64px_1fr_96px] items-center gap-3 text-sm">
+                    <li key={d}>
+                      <button
+                        type="button"
+                        disabled={!row.count}
+                        onClick={() => showSlot({ day: d, from: 0, to: 24 }, DAYS[d])}
+                        className="grid w-full grid-cols-[64px_1fr_96px] items-center gap-3 rounded-md text-left text-sm enabled:hover:bg-secondary"
+                      >
                       <span className="text-muted-foreground">{DAYS[d]}</span>
                       <span className="h-2 overflow-hidden rounded-full bg-secondary">
                         <span
@@ -441,19 +510,24 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
                         {row.count ? formatPerformance(row.performance) : '-'}
                         <span className="ml-1 text-xs text-muted-foreground">({row.count})</span>
                       </span>
+                      </button>
                     </li>
                   );
                 })}
               </ul>
             </SectionCard>
 
-            <SectionCard title="Performa per jam upload" description="Arahkan kursor ke batang untuk detail.">
+            <SectionCard title="Performa per jam upload" description="Arahkan kursor untuk detail, klik untuk melihat videonya.">
               <div className="flex h-40 items-end gap-[3px]">
                 {analysis.byHour.map(h => (
-                  <div
+                  <button
+                    type="button"
                     key={h.hour}
+                    disabled={!h.count}
+                    onClick={() => showSlot({ from: h.hour, to: h.hour + 1 }, `Pukul ${formatHour(h.hour)}–${formatHour(h.hour + 1)}`)}
+                    aria-label={`${formatHour(h.hour)}: ${h.count} video`}
                     className={cn(
-                      'flex-1 rounded-t-sm',
+                      'flex-1 rounded-t-sm enabled:hover:opacity-80',
                       h.count ? (analysis.bestHour?.hour === h.hour ? 'bg-youtube-red' : 'bg-primary') : 'bg-secondary',
                       h.count > 0 && h.count < MIN_SLOT_UPLOADS && 'opacity-40'
                     )}
@@ -474,10 +548,10 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
 
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             <SectionCard title="Slot terbaik" description={`Blok 3 jam di atas rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
-              {analysis.best.length ? <SlotList slots={analysis.best} tone="good" /> : <NotEnough />}
+              {analysis.best.length ? <SlotList slots={analysis.best} tone="good" onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)} /> : <NotEnough />}
             </SectionCard>
             <SectionCard title="Slot terendah" description={`Blok 3 jam di bawah rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
-              {analysis.worst.length ? <SlotList slots={analysis.worst} tone="bad" /> : <NotEnough />}
+              {analysis.worst.length ? <SlotList slots={analysis.worst} tone="bad" onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)} /> : <NotEnough />}
             </SectionCard>
           </div>
 
@@ -508,7 +582,12 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
                 </thead>
                 <tbody>
                   {groupRows.map((r, i) => (
-                    <tr key={r.key} className={cn('border-b border-border last:border-0', !r.rankable && 'text-muted-foreground')}>
+                    <tr
+                      key={r.key}
+                      onClick={() => showSlot(r.match, r.label)}
+                      title="Klik untuk melihat videonya"
+                      className={cn('cursor-pointer border-b border-border last:border-0 hover:bg-secondary', !r.rankable && 'text-muted-foreground')}
+                    >
                       <td className="px-4 py-2 text-muted-foreground sm:pl-6">{r.rankable ? i + 1 : '–'}</td>
                       <td className="whitespace-nowrap px-2 py-2 font-medium">{r.label}</td>
                       <td className="px-2 py-2 text-right tabular-nums">{r.count}</td>
@@ -534,6 +613,113 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
             </div>
           </SectionCard>
 
+          <div ref={listRef} className="scroll-mt-20">
+            <SectionCard
+              className="mt-6"
+              title="Detail upload per video"
+              description={`Hari, tanggal, dan jam upload setiap video (zona waktu ${timeZone}). Performa = views dibanding video seusia.`}
+            >
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {listFilter ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-inverse px-3 py-1.5 text-sm font-medium text-inverse-foreground">
+                    <Clock className="h-4 w-4" /> {listFilter.label} · {formatFullNumber(listRows.length)} video
+                    <button type="button" aria-label="Hapus filter slot" onClick={() => setListFilter(null)} className="ml-1 rounded-full p-0.5 hover:bg-white/20">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    {formatFullNumber(listRows.length)} video • klik sel peta panas atau baris peringkat untuk memfilter
+                  </span>
+                )}
+                <span className="ml-auto flex flex-wrap items-center gap-2" role="group" aria-label="Urutkan daftar">
+                  {LIST_SORTS.map(([id, label]) => (
+                    <button key={id} type="button" className="yt-chip" data-active={listSort === id} onClick={() => setListSort(id)}>
+                      {label}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div className="-mx-4 overflow-x-auto sm:-mx-6">
+                <table className="w-full text-sm sm:min-w-[820px]">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2 font-normal sm:pl-6">Video</th>
+                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Hari & tanggal</th>
+                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Jam</th>
+                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Bagian hari</th>
+                      <th className="hidden px-2 py-2 text-right font-normal sm:table-cell">Umur</th>
+                      <th className="hidden px-2 py-2 text-right font-normal sm:table-cell">Views</th>
+                      <th className="hidden px-4 py-2 text-right font-normal sm:table-cell sm:pr-6">Performa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listRows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-6">
+                          Tidak ada video di slot ini untuk periode & format yang dipilih.
+                        </td>
+                      </tr>
+                    )}
+                    {listRows.slice(0, listLimit).map(r => (
+                      <tr
+                        key={r.video.id}
+                        onClick={() => onPreview?.(r.video)}
+                        className={cn('border-b border-border last:border-0', onPreview && 'cursor-pointer hover:bg-secondary')}
+                      >
+                        <td className="px-4 py-2 sm:pl-6">
+                          <div className="flex items-center gap-3">
+                            <img src={r.video.thumbnail} alt="" loading="lazy" className="aspect-video w-24 shrink-0 rounded-lg bg-secondary object-cover" />
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 font-medium text-foreground">{r.video.title}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {r.video.isShort ? 'Shorts' : 'Video'} • {r.video.durationFormatted}
+                              </p>
+                              {/* Ringkas untuk layar kecil (kolom lain disembunyikan) */}
+                              <p className="mt-1 text-xs font-medium text-foreground sm:hidden">
+                                {formatDateWithDay(r.video.publishedAt)} • {formatTime(r.video.publishedAt)} • {daypartOf(r.hour)}
+                              </p>
+                              <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
+                                {formatNumber(r.video.viewCountRaw)} views • performa {formatPerformance(r.reach)} •{' '}
+                                {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari lalu`}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="hidden whitespace-nowrap px-2 py-2 sm:table-cell" title={formatDateTimeLong(r.video.publishedAt)}>
+                          {formatDateWithDay(r.video.publishedAt)}
+                        </td>
+                        <td className="hidden whitespace-nowrap px-2 py-2 font-medium tabular-nums sm:table-cell">{formatTime(r.video.publishedAt)}</td>
+                        <td className="hidden whitespace-nowrap px-2 py-2 text-muted-foreground sm:table-cell">{daypartOf(r.hour)}</td>
+                        <td className="hidden whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground sm:table-cell">
+                          {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari`}
+                        </td>
+                        <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">{formatNumber(r.video.viewCountRaw)}</td>
+                        <td className="hidden px-4 py-2 text-right sm:table-cell sm:pr-6">
+                          <span
+                            className={cn(
+                              'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums',
+                              r.reach >= 1.05 ? 'bg-primary/10 text-primary' : r.reach <= 0.95 ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-foreground'
+                            )}
+                          >
+                            {formatPerformance(r.reach)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {listRows.length > listLimit && (
+                <div className="mt-3 flex justify-center">
+                  <button type="button" className="yt-pill" onClick={() => setListLimit(l => l + LIST_PAGE * 2)}>
+                    Tampilkan lebih banyak ({formatFullNumber(listRows.length - listLimit)} lagi)
+                  </button>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
           {analysis.best[0] && (
             <div className="mt-6 flex items-start gap-4 rounded-xl bg-primary/10 p-4 sm:p-5">
               <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -557,10 +743,15 @@ const NotEnough = () => (
   <p className="text-sm text-muted-foreground">Data belum cukup — butuh beberapa upload di jam yang sama.</p>
 );
 
-const SlotList: React.FC<{ slots: Slot[]; tone: 'good' | 'bad' }> = ({ slots, tone }) => (
+const SlotList: React.FC<{ slots: Slot[]; tone: 'good' | 'bad'; onSelect?: (s: Slot) => void }> = ({ slots, tone, onSelect }) => (
   <ul className="divide-y divide-border">
     {slots.map((s, i) => (
-      <li key={`${s.day}-${s.hour}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+      <li
+        key={`${s.day}-${s.hour}`}
+        className={cn('flex items-center gap-3 py-3 first:pt-0 last:pb-0', onSelect && '-mx-2 cursor-pointer rounded-lg px-2 hover:bg-secondary')}
+        onClick={() => onSelect?.(s)}
+        title={onSelect ? 'Klik untuk melihat videonya' : undefined}
+      >
         <span
           className={cn(
             'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium',
