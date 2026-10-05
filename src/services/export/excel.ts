@@ -1,7 +1,7 @@
 // Ekspor Excel (.xlsx) profesional — ExcelJS dimuat hanya saat dibutuhkan.
 
 import type { Workbook, Worksheet, Cell, Fill, Borders } from 'exceljs';
-import { Report, ReportRow, METHODOLOGY, GRADE_COLORS, APP_NAME, sourceLabel, formatDateId } from './reportModel';
+import { Report, ReportRow, ScheduleRow, ScheduleSlotRow, METHODOLOGY, GRADE_COLORS, APP_NAME, sourceLabel, formatDateId, performanceRgb } from './reportModel';
 import { ThumbImage } from './thumbnails';
 import { formatNumber } from '../../lib/format';
 
@@ -10,6 +10,9 @@ const RED = 'FFFF0000';
 const MUTED = 'FF606060';
 const BORDER = 'FFE5E5E5';
 const ZEBRA = 'FFF8F8F8';
+
+const performanceArgb = (p: number | null): string =>
+  `FF${performanceRgb(p).map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 
 const solid = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 const thinBorder: Partial<Borders> = {
@@ -172,6 +175,22 @@ const buildSummarySheet = (wb: Workbook, report: Report, avatar?: ThumbImage) =>
     r++;
   });
 
+  const sc = report.schedule;
+  r++;
+  section('Jadwal upload', ['Waktu', 'Performa', 'Upload']);
+  kv('Hari terbaik', [sc.bestDay?.day ?? '-', sc.bestDay ? `${sc.bestDay.performance}×` : '-', sc.bestDay?.uploads ?? '-']);
+  kv('Jam terbaik', [sc.bestHour?.hour ?? '-', sc.bestHour ? `${sc.bestHour.performance}×` : '-', sc.bestHour?.uploads ?? '-']);
+  kv('Slot 3 jam terbaik', sc.bestSlots[0] ? [`${sc.bestSlots[0].day} ${sc.bestSlots[0].time}`, `${sc.bestSlots[0].performance}×`, sc.bestSlots[0].uploads] : ['-']);
+  kv('Paling sering upload', [sc.busiestDay ? `${sc.busiestDay.day} (${sc.busiestDay.uploads})` : '-']);
+  kv('Zona waktu', [`${sc.timeZone} (${sc.utcOffset})`]);
+  ws.mergeCells(r - 1, 3, r - 1, 5);
+  const note = ws.getCell(r, 1);
+  ws.mergeCells(r, 1, r, 5);
+  note.value = 'Detail lengkap ada di sheet "Jadwal Upload".';
+  note.font = { name: 'Arial', size: 9, italic: true, color: { argb: MUTED } };
+  note.alignment = { indent: 1 };
+  r++;
+
   if (s.topTags.length) {
     r++;
     section('Tag teratas', ['Video', 'Rata-rata views']);
@@ -186,6 +205,9 @@ const VIDEO_COLUMNS = [
   { header: 'Jenis', key: 'type', width: 9 },
   { header: 'Durasi', key: 'duration', width: 9 },
   { header: 'Tanggal upload', key: 'published', width: 14 },
+  { header: 'Hari upload', key: 'uday', width: 11 },
+  { header: 'Jam upload', key: 'uhour', width: 10 },
+  { header: 'Bagian hari', key: 'upart', width: 11 },
   { header: 'Umur (hari)', key: 'age', width: 10 },
   { header: 'Views', key: 'views', width: 13 },
   { header: 'Likes', key: 'likes', width: 11 },
@@ -204,6 +226,9 @@ const VIDEO_COLUMNS = [
   { header: 'Video ID', key: 'id', width: 14 },
   { header: 'URL', key: 'url', width: 44 },
 ];
+
+const TITLE_COL = VIDEO_COLUMNS.findIndex(c => c.key === 'title') + 1;
+const TAGS_COL = VIDEO_COLUMNS.findIndex(c => c.key === 'tags') + 1;
 
 const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, ThumbImage> | null) => {
   const ws = wb.addWorksheet('Video', {
@@ -232,6 +257,9 @@ const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, Th
       type: r.type,
       duration: r.duration,
       published: new Date(r.publishedAt),
+      uday: r.uploadDay,
+      uhour: r.uploadHour,
+      upart: r.uploadDaypart,
       age: r.ageDays,
       views: r.views,
       likes: r.likes ?? 'Disembunyikan',
@@ -253,7 +281,7 @@ const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, Th
     row.height = rowHeight;
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       cell.font = { name: 'Arial', size: 10, color: { argb: INK } };
-      cell.alignment = { vertical: 'middle', wrapText: col === 3 || col === 20 };
+      cell.alignment = { vertical: 'middle', wrapText: col === TITLE_COL || col === TAGS_COL };
       cell.border = thinBorder;
       if (i % 2) cell.fill = solid(ZEBRA);
     });
@@ -263,7 +291,7 @@ const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, Th
     ['views', 'likes', 'comments', 'vpd', 'age'].forEach(k => (row.getCell(k).numFmt = '#,##0'));
     row.getCell('er').numFmt = '0.00%';
     row.getCell('reach').numFmt = '0.0"×"';
-    ['no', 'type', 'duration', 'published', 'outlier', 'ts', 'ths', 'conf'].forEach(k => (row.getCell(k).alignment = { horizontal: 'center', vertical: 'middle' }));
+    ['no', 'type', 'duration', 'published', 'uday', 'uhour', 'upart', 'outlier', 'ts', 'ths', 'conf'].forEach(k => (row.getCell(k).alignment = { horizontal: 'center', vertical: 'middle' }));
     if (r.isOutlier) row.getCell('outlier').font = { name: 'Arial', bold: true, color: { argb: 'FFCC0000' } };
     gradeCell(row.getCell('tg'), r.titleGrade);
     gradeCell(row.getCell('thg'), r.thumbnailGrade);
@@ -277,6 +305,192 @@ const buildVideoSheet = (wb: Workbook, rows: ReportRow[], thumbs: Map<string, Th
   });
 
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: VIDEO_COLUMNS.length } };
+};
+
+const CONFIDENCE_ARGB: Record<string, string> = { tinggi: 'FF0B8043', sedang: 'FFE8710A', rendah: 'FF909090' };
+
+const buildScheduleSheet = (wb: Workbook, report: Report) => {
+  const sc = report.schedule;
+  const ws = wb.addWorksheet('Jadwal Upload', { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FF065FD4' } } });
+  // A: label • B–Y: 24 kolom jam (peta panas) / kolom tabel
+  ws.columns = [{ width: 26 }, ...Array.from({ length: 24 }, () => ({ width: 6.2 }))];
+  ws.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
+  addTitleBlock(ws, report, 'Y');
+  ws.getCell('A1').value = `Jadwal Upload — ${report.context.title}`;
+  let r = 4;
+
+  const heading = (text: string, sub?: string) => {
+    ws.mergeCells(r, 1, r, 25);
+    const c = ws.getCell(r, 1);
+    c.value = text.toUpperCase();
+    c.font = { name: 'Arial', bold: true, size: 10, color: { argb: INK } };
+    for (let col = 1; col <= 25; col++) ws.getCell(r, col).border = { bottom: { style: 'medium', color: { argb: INK } } };
+    ws.getRow(r).height = 20;
+    r++;
+    if (sub) {
+      ws.mergeCells(r, 1, r, 25);
+      const d = ws.getCell(r, 1);
+      d.value = sub;
+      d.font = { name: 'Arial', size: 9, color: { argb: MUTED } };
+      d.alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(r).height = 26;
+      r++;
+    }
+  };
+
+  // Tabel: kolom A label, lalu kolom bergabung 3 sel per nilai (B–D, E–G, ...)
+  const tableHeader = (headers: string[]) => {
+    const h = ws.getCell(r, 1);
+    h.value = headers[0];
+    headers.slice(1).forEach((t, i) => {
+      ws.mergeCells(r, 2 + i * 3, r, 4 + i * 3);
+      ws.getCell(r, 2 + i * 3).value = t;
+    });
+    const last = 1 + (headers.length - 1) * 3;
+    for (let col = 1; col <= last; col++) {
+      const c = ws.getCell(r, col);
+      c.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' }, size: 9 };
+      c.fill = solid(INK);
+      c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'center', indent: col === 1 ? 1 : 0 };
+    }
+    ws.getRow(r).height = 20;
+    r++;
+    return last;
+  };
+  const tableRow = (values: Array<string | number | null>, fmts: Array<string | undefined>, opts: { perf?: number | null; confidence?: string; zebra?: boolean } = {}) => {
+    const l = ws.getCell(r, 1);
+    l.value = values[0];
+    l.font = { name: 'Arial', size: 10, bold: true, color: { argb: INK } };
+    l.alignment = { indent: 1, vertical: 'middle' };
+    values.slice(1).forEach((v, i) => {
+      ws.mergeCells(r, 2 + i * 3, r, 4 + i * 3);
+      const c = ws.getCell(r, 2 + i * 3);
+      c.value = v ?? '-';
+      c.font = { name: 'Arial', size: 10, color: { argb: INK } };
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (fmts[i] && typeof v === 'number') c.numFmt = fmts[i]!;
+    });
+    const last = 1 + (values.length - 1) * 3;
+    for (let col = 1; col <= last; col++) {
+      const c = ws.getCell(r, col);
+      c.border = { bottom: { style: 'hair', color: { argb: BORDER } } };
+      if (opts.zebra) c.fill = solid(ZEBRA);
+    }
+    return { last };
+  };
+
+  // Ringkasan
+  heading(
+    'Ringkasan',
+    `${sc.totalVideos.toLocaleString('id-ID')} video • waktu dalam zona ${sc.timeZone} (${sc.utcOffset}). Performa = views dibanding perkiraan views video seusia (1,0× = rata-rata).`
+  );
+  const summaryRows: Array<[string, string]> = [
+    ['Hari terbaik', sc.bestDay ? `${sc.bestDay.day} — ${sc.bestDay.performance}× (${sc.bestDay.uploads} upload)` : 'Data belum cukup'],
+    ['Jam terbaik', sc.bestHour ? `${sc.bestHour.hour} — ${sc.bestHour.performance}× (${sc.bestHour.uploads} upload)` : 'Data belum cukup'],
+    ['Paling sering upload', sc.busiestDay ? `${sc.busiestDay.day} (${sc.busiestDay.uploads} upload)` : '-'],
+    ['Rekomendasi', sc.recommendation ?? 'Belum ada slot dengan minimal 2 upload.'],
+  ];
+  summaryRows.forEach(([k, v]) => {
+    ws.getCell(r, 1).value = k;
+    ws.getCell(r, 1).font = { name: 'Arial', size: 10, color: { argb: MUTED } };
+    ws.getCell(r, 1).alignment = { indent: 1, vertical: 'top' };
+    ws.mergeCells(r, 2, r, 25);
+    const c = ws.getCell(r, 2);
+    c.value = v;
+    c.font = { name: 'Arial', size: 10, bold: k !== 'Rekomendasi', color: { argb: INK } };
+    c.alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(r).height = k === 'Rekomendasi' ? 30 : 18;
+    r++;
+  });
+  r++;
+
+  // Slot terbaik / terendah
+  const slotTable = (title: string, list: ScheduleSlotRow[]) => {
+    heading(title);
+    if (!list.length) {
+      ws.getCell(r, 1).value = 'Data belum cukup (butuh minimal 2 upload per blok 3 jam).';
+      ws.getCell(r, 1).font = { name: 'Arial', size: 10, italic: true, color: { argb: MUTED } };
+      r += 2;
+      return;
+    }
+    tableHeader(['Slot', 'Upload', 'Performa', 'Median views', 'Keyakinan']);
+    list.forEach((sl, i) => {
+      tableRow([`${sl.day}, ${sl.time}`, sl.uploads, sl.performance, sl.medianViews, sl.confidence], ['#,##0', '0.0"×"', '#,##0'], { zebra: i % 2 === 1 });
+      ws.getCell(r, 5).fill = solid(performanceArgb(sl.performance));
+      ws.getCell(r, 11).font = { name: 'Arial', size: 10, bold: true, color: { argb: CONFIDENCE_ARGB[sl.confidence] } };
+      r++;
+    });
+    r++;
+  };
+  slotTable('Slot 3 jam terbaik (di atas rata-rata)', sc.bestSlots);
+  slotTable('Slot 3 jam terendah (di bawah rata-rata)', sc.worstSlots);
+
+  // Tabel per kelompok
+  const groupTable = (title: string, rows: ScheduleRow[]) => {
+    heading(title);
+    tableHeader(['Waktu', 'Upload', 'Performa', 'Median views', 'Rata-rata views', 'Keyakinan', 'Peringkat']);
+    rows.forEach((g, i) => {
+      tableRow([g.label, g.uploads, g.performance, g.medianViews, g.avgViews, g.confidence, g.rank], ['#,##0', '0.0"×"', '#,##0', '#,##0', undefined, '0'], {
+        zebra: i % 2 === 1,
+      });
+      ws.getCell(r, 5).fill = solid(performanceArgb(g.performance));
+      ws.getCell(r, 14).font = { name: 'Arial', size: 10, bold: true, color: { argb: CONFIDENCE_ARGB[g.confidence] } };
+      if (g.rank === 1) ws.getCell(r, 17).font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0B8043' } };
+      if (!g.rank) ws.getRow(r).eachCell(c => (c.font = { ...c.font, color: { argb: MUTED } }));
+      r++;
+    });
+    r++;
+  };
+  groupTable('Performa per hari', sc.groups.day);
+  groupTable('Performa per bagian hari', sc.groups.daypart);
+  groupTable('Performa per blok 3 jam', sc.groups.block);
+
+  // Peta panas
+  const heatmap = (title: string, sub: string, value: (di: number, h: number) => { text: string | number; fill: string; dark?: boolean }) => {
+    heading(title, sub);
+    const hr = ws.getRow(r);
+    hr.getCell(1).value = 'Hari / jam';
+    for (let h = 0; h < 24; h++) hr.getCell(2 + h).value = String(h).padStart(2, '0');
+    hr.eachCell(c => {
+      c.font = { name: 'Arial', bold: true, size: 8, color: { argb: 'FFFFFFFF' } };
+      c.fill = solid(INK);
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    r++;
+    sc.heatmap.days.forEach((day, di) => {
+      const row = ws.getRow(r);
+      row.height = 20;
+      row.getCell(1).value = day;
+      row.getCell(1).font = { name: 'Arial', size: 9, bold: true };
+      row.getCell(1).alignment = { indent: 1, vertical: 'middle' };
+      for (let h = 0; h < 24; h++) {
+        const { text, fill, dark } = value(di, h);
+        const c = row.getCell(2 + h);
+        c.value = text;
+        c.fill = solid(fill);
+        c.font = { name: 'Arial', size: 8, color: { argb: dark ? 'FFFFFFFF' : INK } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = { top: { style: 'thin', color: { argb: 'FFFFFFFF' } }, left: { style: 'thin', color: { argb: 'FFFFFFFF' } } };
+        if (typeof text === 'number' && text % 1 !== 0) c.numFmt = '0.0';
+      }
+      r++;
+    });
+    r++;
+  };
+  heatmap('Peta panas performa (hari × jam)', 'Angka = performa (×). Biru = di atas rata-rata, merah = di bawah rata-rata, abu-abu = belum ada upload.', (di, h) => {
+    const p = sc.heatmap.performance[di][h];
+    return { text: p === null ? '' : p, fill: performanceArgb(p), dark: p !== null && (p >= 2 || p <= 0.4) };
+  });
+  const maxCount = Math.max(1, ...sc.heatmap.uploads.flat());
+  heatmap('Peta panas jumlah upload (hari × jam)', 'Angka = jumlah video yang diupload di slot tersebut.', (di, h) => {
+    const n = sc.heatmap.uploads[di][h];
+    if (!n) return { text: '', fill: 'FFF2F2F2' };
+    const alpha = 0.15 + (n / maxCount) * 0.85;
+    const mix = [6, 95, 212].map(c => Math.round(255 + (c - 255) * alpha).toString(16).padStart(2, '0')).join('');
+    return { text: n, fill: `FF${mix.toUpperCase()}`, dark: alpha > 0.6 };
+  });
+
+  groupTable('Performa per jam', sc.groups.hour);
 };
 
 const buildTagSheet = (wb: Workbook, report: Report) => {
@@ -328,6 +542,7 @@ export const buildExcel = async (report: Report, thumbs: Map<string, ThumbImage>
   wb.title = report.context.title;
 
   buildSummarySheet(wb, report, avatar);
+  buildScheduleSheet(wb, report);
   buildVideoSheet(wb, report.rows, thumbs);
   buildTagSheet(wb, report);
   buildMethodSheet(wb);

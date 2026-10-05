@@ -5,7 +5,7 @@ import { SCORE_MODEL } from '../performanceScoreService';
 import { ThumbImage } from './thumbnails';
 
 export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null): Blob => {
-  const { context, summary, rows } = report;
+  const { context, summary, schedule, rows } = report;
   const ch = context.channelStats;
   const payload = {
     $schema: 'yt-analyzer-report',
@@ -27,6 +27,7 @@ export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null
         }
       : null,
     summary,
+    schedule,
     scoring: {
       model: SCORE_MODEL,
       glossary: Object.fromEntries(METHODOLOGY),
@@ -39,6 +40,7 @@ export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null
       type: r.type,
       channel: { id: r.channelId, title: r.channelTitle },
       publishedAt: r.publishedAt,
+      upload: { day: r.uploadDay, hour: r.uploadHour, daypart: r.uploadDaypart, timeZone: schedule.timeZone },
       ageDays: r.ageDays,
       duration: { seconds: r.durationSec, formatted: r.duration },
       statistics: { views: r.views, likes: r.likes, comments: r.comments, engagementRate: r.engagementRate, viewsPerDay: r.viewsPerDay },
@@ -67,14 +69,14 @@ const csvCell = (value: unknown): string => {
 
 export const buildCsv = (report: Report): Blob => {
   const headers = [
-    'No', 'Video ID', 'Judul', 'Jenis', 'Tanggal upload', 'Umur (hari)', 'Durasi', 'Durasi (detik)',
+    'No', 'Video ID', 'Judul', 'Jenis', 'Tanggal upload', 'Hari upload', 'Jam upload', 'Bagian hari', 'Umur (hari)', 'Durasi', 'Durasi (detik)',
     'Views', 'Likes', 'Komentar', 'Engagement rate (%)', 'Views per hari', 'Rasio jangkauan', 'Outlier',
     'Skor judul', 'Nilai judul', 'Skor thumbnail', 'Nilai thumbnail', 'Keyakinan skor', 'Kelompok pembanding',
     'Tag', 'Channel', 'Channel ID', 'URL', 'Thumbnail URL (HQ)',
   ];
   const lines = report.rows.map(r =>
     [
-      r.no, r.id, r.title, r.type, r.publishedAt.slice(0, 10), r.ageDays, r.duration, r.durationSec,
+      r.no, r.id, r.title, r.type, r.publishedAt.slice(0, 10), r.uploadDay, r.uploadHour, r.uploadDaypart, r.ageDays, r.duration, r.durationSec,
       r.views, r.likes, r.comments, r.engagementRate, r.viewsPerDay, r.reachRatio, r.isOutlier ? 'Ya' : 'Tidak',
       r.titleScore, r.titleGrade, r.thumbnailScore, r.thumbnailGrade, r.scoreConfidence, r.scoreCohort,
       r.tags.join(' | '), r.channelTitle, r.channelId, r.url, r.thumbnails.high,
@@ -83,5 +85,32 @@ export const buildCsv = (report: Report): Blob => {
       .join(',')
   );
   // BOM agar Excel membaca UTF-8 (judul berbahasa Indonesia/emoji) dengan benar
+  return new Blob(['﻿' + [headers.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+};
+
+const GROUP_TITLES: Array<[keyof Report['schedule']['groups'], string]> = [
+  ['day', 'Hari'],
+  ['daypart', 'Bagian hari'],
+  ['block', 'Blok 3 jam'],
+  ['hour', 'Jam'],
+];
+
+/** CSV ringkasan jadwal upload: satu tabel panjang dengan kolom "Kelompok" (mudah di-pivot). */
+export const buildScheduleCsv = (report: Report): Blob => {
+  const sc = report.schedule;
+  const headers = ['Kelompok', 'Waktu', 'Upload', 'Performa (x video seusia)', 'Median views', 'Rata-rata views', 'Keyakinan', 'Peringkat', 'Zona waktu'];
+  const lines: string[] = [];
+  GROUP_TITLES.forEach(([key, title]) =>
+    sc.groups[key].forEach(g =>
+      lines.push([title, g.label, g.uploads, g.performance, g.medianViews, g.avgViews, g.confidence, g.rank ?? '', `${sc.timeZone} (${sc.utcOffset})`].map(csvCell).join(','))
+    )
+  );
+  sc.heatmap.days.forEach((day, di) =>
+    sc.heatmap.uploads[di].forEach((count, hour) => {
+      if (!count) return;
+      const perf = sc.heatmap.performance[di][hour];
+      lines.push(['Hari × jam', `${day} ${String(hour).padStart(2, '0')}.00`, count, perf, '', '', '', '', `${sc.timeZone} (${sc.utcOffset})`].map(csvCell).join(','));
+    })
+  );
   return new Blob(['﻿' + [headers.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
 };

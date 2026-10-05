@@ -21,12 +21,12 @@ interface ExportDialogProps {
 }
 
 const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; icon: typeof FileText; description: string; recommended?: boolean }> = [
-  { id: 'xlsx', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet, description: 'Ringkasan, tabel + thumbnail, tag, metodologi', recommended: true },
-  { id: 'pdf', label: 'PDF', ext: '.pdf', icon: FileText, description: 'Laporan siap cetak & dibagikan' },
-  { id: 'html', label: 'HTML', ext: '.html', icon: Globe, description: 'Laporan 1 file, dibuka di browser' },
-  { id: 'json', label: 'JSON', ext: '.json', icon: Braces, description: 'Data terstruktur + skor rinci' },
-  { id: 'csv', label: 'CSV', ext: '.csv', icon: Sheet, description: 'Tabel universal (Sheets/BI)' },
-  { id: 'zip', label: 'Paket lengkap', ext: '.zip', icon: Package, description: 'Semua format + folder thumbnail HD' },
+  { id: 'xlsx', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet, description: 'Ringkasan, jadwal upload, tabel + thumbnail, tag', recommended: true },
+  { id: 'pdf', label: 'PDF', ext: '.pdf', icon: FileText, description: 'Laporan siap cetak + jadwal upload' },
+  { id: 'html', label: 'HTML', ext: '.html', icon: Globe, description: 'Laporan 1 file + peta panas jadwal' },
+  { id: 'json', label: 'JSON', ext: '.json', icon: Braces, description: 'Data terstruktur, skor & jadwal' },
+  { id: 'csv', label: 'CSV', ext: '.csv', icon: Sheet, description: 'Tabel video atau tabel jadwal upload' },
+  { id: 'zip', label: 'Paket lengkap', ext: '.zip', icon: Package, description: 'Semua format + CSV jadwal + thumbnail HD' },
 ];
 
 const SCOPE_LABEL: Record<ExportScope, string> = {
@@ -42,6 +42,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
   const [scope, setScope] = useState<ExportScope>(defaultScope);
   const [withThumbs, setWithThumbs] = useState(true);
   const [zipSize, setZipSize] = useState<'maxres' | 'hq'>('maxres');
+  const [csvKind, setCsvKind] = useState<'videos' | 'schedule'>('videos');
   const [fileName, setFileName] = useState('');
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ label: string; percent: number } | null>(null);
@@ -81,6 +82,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
         fileName,
         includeThumbnails: thumbsSupported && withThumbs,
         zipThumbnailSize: zipSize,
+        csvKind,
         signal: controller.signal,
         onProgress: (label, percent) => setProgress({ label, percent }),
       });
@@ -140,6 +142,17 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                 );
               })}
             </div>
+            {format === 'csv' && (
+              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Isi CSV">
+                <span className="text-xs text-muted-foreground">Isi CSV:</span>
+                <button type="button" className="yt-chip" data-active={csvKind === 'videos'} disabled={running} onClick={() => setCsvKind('videos')}>
+                  Data video (+ hari & jam upload)
+                </button>
+                <button type="button" className="yt-chip" data-active={csvKind === 'schedule'} disabled={running} onClick={() => setCsvKind('schedule')}>
+                  Jadwal upload
+                </button>
+              </div>
+            )}
           </section>
 
           <section>

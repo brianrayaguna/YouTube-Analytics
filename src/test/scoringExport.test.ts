@@ -4,7 +4,7 @@ import { isShortDuration, withShortsClassification } from '../lib/video';
 import { calculateAllVideoScores, midRankPercentile, gradeFromScore } from '../services/performanceScoreService';
 import { analyzeTitleScore } from '../services/titleScoreService';
 import { buildReport } from '../services/export/reportModel';
-import { buildCsv, buildJson } from '../services/export/dataFormats';
+import { buildCsv, buildJson, buildScheduleCsv } from '../services/export/dataFormats';
 import { buildHtml } from '../services/export/html';
 import { buildExcel } from '../services/export/excel';
 import { buildPdf, pdfText } from '../services/export/pdf';
@@ -170,17 +170,53 @@ describe('exports', () => {
     const ExcelJS = (await import('exceljs')).default;
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await blob.arrayBuffer());
-    expect(wb.worksheets.map(w => w.name)).toEqual(['Ringkasan', 'Video', 'Tag', 'Metodologi']);
+    expect(wb.worksheets.map(w => w.name)).toEqual(['Ringkasan', 'Jadwal Upload', 'Video', 'Tag', 'Metodologi']);
     const ws = wb.getWorksheet('Video')!;
     expect(ws.rowCount).toBe(4);
     expect((ws.getCell('C2').value as { hyperlink: string }).hyperlink).toBe('https://www.youtube.com/watch?v=aaaaaaaaaaa');
-    expect(ws.getCell('I4').value).toBe('Disembunyikan');
+    expect(ws.getCell('G1').value).toBe('Hari upload');
+    expect(ws.getCell('G2').value).toBe(report.rows[0].uploadDay);
+    expect(ws.getCell('L4').value).toBe('Disembunyikan');
+    const sched = wb.getWorksheet('Jadwal Upload')!;
+    const texts: string[] = [];
+    sched.eachRow(r => r.eachCell(c => texts.push(String(c.value ?? ''))));
+    expect(texts).toContain('Hari terbaik');
+    expect(texts.some(t => t.includes('PERINGKAT') || t.includes('PERFORMA PER HARI'))).toBe(true);
+    expect(texts).toContain('Senin');
   });
 
-  it('PDF: valid document', async () => {
+  it('PDF: valid document with a schedule page', async () => {
     const blob = await buildPdf(report, null);
-    const head = new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer()).slice(0, 5));
-    expect(head).toBe('%PDF-');
+    const text = new TextDecoder('latin1').decode(new Uint8Array(await blob.arrayBuffer()));
+    expect(text.slice(0, 5)).toBe('%PDF-');
+    expect(text).toContain('Jadwal upload');
+    expect(text).toContain('Peta panas performa');
+  });
+
+  it('schedule data is in the report and every format', async () => {
+    const sc = report.schedule;
+    expect(sc.totalVideos).toBe(3);
+    expect(sc.heatmap.days).toEqual(['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']);
+    expect(sc.heatmap.uploads.flat().reduce((a, b) => a + b, 0)).toBe(3);
+    expect(sc.groups.day.reduce((a, g) => a + g.uploads, 0)).toBe(3);
+    expect(sc.groups.hour.length).toBeGreaterThan(0);
+    expect(report.rows[0].uploadHour).toMatch(/^\d{2}\.00$/);
+
+    const json = JSON.parse(await buildJson(report, null).text());
+    expect(json.schedule.groups.daypart.length).toBeGreaterThan(0);
+    expect(json.videos[0].upload.day).toBe(report.rows[0].uploadDay);
+
+    const csv = await buildCsv(report).text();
+    expect(csv.split('\r\n')[0]).toContain('Hari upload,Jam upload,Bagian hari');
+    const schedCsv = (await buildScheduleCsv(report).text()).split('\r\n');
+    expect(schedCsv[0]).toContain('Kelompok,Waktu,Upload');
+    expect(schedCsv.some(l => l.startsWith('Hari,'))).toBe(true);
+    expect(schedCsv.some(l => l.startsWith('Hari × jam,'))).toBe(true);
+
+    const html = await buildHtml(report, null).text();
+    expect(html).toContain('id="jadwal"');
+    expect(html.match(/class="hc/g)).toHaveLength(7 * 24);
+    expect(html).toContain('data-g="daypart"');
   });
 
   it('PDF text sanitizer keeps Latin text and drops emoji', () => {
