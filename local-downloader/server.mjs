@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 const PORT = Number(process.env.PORT) || 17890;
 const HOST = '127.0.0.1';
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.join(os.homedir(), 'Downloads', 'YT Analyzer');
@@ -82,6 +82,43 @@ const TITLE_PREFIX = '@@T ';
 const FILE_PREFIX = '@@F ';
 
 /**
+ * Urutan prioritas format yt-dlp (-S).
+ * - Terbaik/≤1080p: H.264 didahulukan (YouTube menyediakan H.264 hingga 1080p).
+ * - 1440p/2160p: resolusi didahulukan (hanya tersedia VP9/AV1) → dikonversi ke H.264 setelah unduh.
+ */
+export const formatSortFor = quality => {
+  if (quality === 'best' || !QUALITIES.includes(quality)) return 'vcodec:h264,res,acodec:aac';
+  return Number(quality) > 1080 ? `res:${quality},vcodec:h264,acodec:aac` : `vcodec:h264,res:${quality},acodec:aac`;
+};
+
+/** Codec yang bisa diputar di hampir semua pemutar (Windows, macOS/iOS, Android, TV, editor). */
+export const compatibilityPlan = ({ videoCodec, pixFmt, audioCodec }) => {
+  const videoOk = !videoCodec || (videoCodec === 'h264' && (!pixFmt || pixFmt === 'yuv420p' || pixFmt === 'yuvj420p'));
+  const audioOk = !audioCodec || audioCodec === 'aac' || audioCodec === 'mp3';
+  if (videoOk && audioOk) return 'none';
+  return videoOk ? 'audio' : 'full';
+};
+
+export const buildTranscodeArgs = (input, output, plan, audioCodec) => [
+  '-hide_banner',
+  '-y',
+  '-i',
+  input,
+  '-map',
+  '0:v:0?',
+  '-map',
+  '0:a:0?',
+  ...(plan === 'full' ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy']),
+  ...(audioCodec === 'aac' ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']),
+  '-movflags',
+  '+faststart',
+  '-progress',
+  'pipe:1',
+  '-nostats',
+  output,
+];
+
+/**
  * Argumen yt-dlp untuk satu unduhan. URL selalu diletakkan setelah "--".
  * `workDir` adalah folder kerja khusus job; hasil akhir dipindahkan server ke folder unduhan,
  * sehingga yt-dlp tidak pernah melihat, menimpa, atau menghapus file milik pengguna.
@@ -110,12 +147,14 @@ export const buildDownloadArgs = ({ url, format, quality, hasFfmpeg, workDir, ff
 
   if (format === 'mp3') {
     if (hasFfmpeg) args.push('-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '0');
-    else args.push('-f', 'ba[ext=m4a]/ba/b'); // tanpa ffmpeg: audio asli (m4a/webm)
+    else args.push('-S', 'acodec:aac', '-f', 'ba[ext=m4a]/ba/b'); // tanpa ffmpeg: audio asli (m4a)
   } else if (hasFfmpeg) {
-    args.push('-f', `bv*${h}[ext=mp4]+ba[ext=m4a]/bv*${h}+ba/b${h}/b`, '--merge-output-format', 'mp4');
+    // Video murni + audio murni, diurutkan agar H.264 + AAC dipilih (bisa diputar di semua pemutar).
+    // Format lama (bv*[ext=mp4]) memilih AV1 di wadah MP4 → tidak bisa dibuka di banyak perangkat.
+    args.push('-S', formatSortFor(q), '-f', 'bv+ba/b', '--merge-output-format', 'mp4');
   } else {
-    // tanpa ffmpeg hanya bisa format "progressive" (video+audio satu file)
-    args.push('-f', `b${h}[ext=mp4]/b${h}/b`);
+    // Tanpa ffmpeg hanya format "progressive" (video+audio satu file, H.264/AAC)
+    args.push('-S', formatSortFor(q), '-f', `b${h}[vcodec^=avc1]/b[vcodec^=avc1]/b${h}/b`);
   }
   args.push('--', url);
   return args;
@@ -193,7 +232,7 @@ const run = (cmd, args, timeoutMs = 15000) =>
     });
   });
 
-const engine = { ytdlp: null, ytdlpVersion: null, ffmpeg: false, ffmpegLocation: null, ffmpegVersion: null };
+const engine = { ytdlp: null, ytdlpVersion: null, ffmpeg: false, ffmpegCmd: 'ffmpeg', ffprobeCmd: null, ffmpegLocation: null, ffmpegVersion: null };
 
 const detectEngine = async () => {
   const candidates = [
@@ -220,6 +259,10 @@ const detectEngine = async () => {
   engine.ffmpeg = ff.ok;
   engine.ffmpegLocation = ff.ok && ffEnv ? ffEnv : null;
   engine.ffmpegVersion = ff.ok ? (ff.out.match(/ffmpeg version (\S+)/)?.[1] ?? 'ok') : null;
+  engine.ffmpegCmd = ffCmd;
+  // ffprobe biasanya berada di folder yang sama dengan ffmpeg
+  const probeCmd = ffCmd === 'ffmpeg' ? 'ffprobe' : path.join(path.dirname(ffCmd), path.basename(ffCmd).replace(/ffmpeg/i, 'ffprobe'));
+  engine.ffprobeCmd = ff.ok && (await run(probeCmd, ['-version'])).ok ? probeCmd : null;
   return engine;
 };
 
@@ -309,32 +352,102 @@ const runJob = job => {
     job.error = e.message;
   });
   child.on('close', code => {
-    active--;
     delete job.child;
-    job.finishedAt = Date.now();
-    if (job.status === 'canceled') {
-      // biarkan status canceled
-    } else if (code === 0 && job.filepath && fs.existsSync(job.filepath)) {
-      try {
-        job.filepath = moveToDownloads(job.filepath);
-        job.filename = path.basename(job.filepath);
-        job.size = fs.statSync(job.filepath).size;
-        job.status = 'done';
-        job.percent = 100;
-      } catch (e) {
-        job.status = 'error';
-        job.error = `Gagal memindahkan file: ${e.message}`;
-      }
-    } else {
-      job.status = 'error';
-      job.error = job.error || `yt-dlp keluar dengan kode ${code}`;
-    }
-    fs.rm(workDir, { recursive: true, force: true }, () =>
-      fs.rmdir(path.join(DOWNLOAD_DIR, '.tmp'), () => {}) // hapus bila sudah kosong
-    );
-    pruneJobs();
-    startNext();
+    finalizeJob(job, code, workDir).finally(() => {
+      active--;
+      job.finishedAt = Date.now();
+      fs.rm(workDir, { recursive: true, force: true }, () =>
+        fs.rmdir(path.join(DOWNLOAD_DIR, '.tmp'), () => {}) // hapus bila sudah kosong
+      );
+      pruneJobs();
+      startNext();
+    });
   });
+};
+
+const probeMedia = async file => {
+  if (!engine.ffprobeCmd) return null;
+  const r = await run(engine.ffprobeCmd, ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,pix_fmt:format=duration', '-of', 'json', file], 30000);
+  if (!r.ok) return null;
+  try {
+    const data = JSON.parse(r.out);
+    const v = data.streams?.find(st => st.codec_type === 'video');
+    const a = data.streams?.find(st => st.codec_type === 'audio');
+    return { videoCodec: v?.codec_name ?? null, pixFmt: v?.pix_fmt ?? null, audioCodec: a?.codec_name ?? null, duration: Number(data.format?.duration) || 0 };
+  } catch {
+    return null;
+  }
+};
+
+/** Pastikan MP4 memakai H.264 + AAC; konversi bila yt-dlp hanya mendapat VP9/AV1/Opus. */
+const ensurePlayable = async (job, file) => {
+  const info = await probeMedia(file);
+  if (!info) return file;
+  job.videoCodec = info.videoCodec;
+  job.audioCodec = info.audioCodec;
+  const plan = compatibilityPlan(info);
+  if (plan === 'none') return file;
+
+  job.status = 'converting';
+  job.conversion = plan;
+  job.percent = 0;
+  job.speed = null;
+  job.eta = null;
+  const output = file.replace(/\.[^.]+$/, '') + '.h264.mp4';
+  const child = spawn(engine.ffmpegCmd, buildTranscodeArgs(file, output, plan, info.audioCodec), { windowsHide: true });
+  job.child = child;
+  let stderr = '';
+  let buf = '';
+  child.stdout.on('data', d => {
+    buf += d.toString();
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop();
+    for (const line of lines) {
+      const m = line.match(/^out_time_us=(\d+)/);
+      if (m && info.duration) job.percent = Math.min(99, (Number(m[1]) / 1e6 / info.duration) * 100);
+    }
+  });
+  child.stderr.on('data', d => (stderr = (stderr + d).slice(-2000)));
+  const code = await new Promise(resolve => {
+    child.on('error', () => resolve(-1));
+    child.on('close', resolve);
+  });
+  delete job.child;
+  if (job.status === 'canceled') return null;
+  if (code !== 0 || !fs.existsSync(output)) {
+    throw new Error(`Konversi ke H.264 gagal: ${(stderr.trim().split('\n').pop() || `kode ${code}`).slice(0, 200)}`);
+  }
+  fs.unlinkSync(file);
+  const finalPath = file.replace(/\.[^.]+$/, '') + '.mp4';
+  fs.renameSync(output, finalPath);
+  job.videoCodec = info.videoCodec ? 'h264' : null;
+  job.audioCodec = info.audioCodec ? 'aac' : null;
+  return finalPath;
+};
+
+const finalizeJob = async (job, code, workDir) => {
+  if (job.status === 'canceled') return;
+  if (code !== 0 || !job.filepath || !fs.existsSync(job.filepath)) {
+    job.status = 'error';
+    job.error = job.error || `yt-dlp keluar dengan kode ${code}`;
+    return;
+  }
+  try {
+    let file = job.filepath;
+    if (job.format === 'mp4' && engine.ffmpeg) {
+      const playable = await ensurePlayable(job, file);
+      if (!playable) return; // dibatalkan saat konversi
+      file = playable;
+    }
+    job.filepath = moveToDownloads(file);
+    job.filename = path.basename(job.filepath);
+    job.size = fs.statSync(job.filepath).size;
+    job.status = 'done';
+    job.percent = 100;
+  } catch (e) {
+    job.status = 'error';
+    job.error = e instanceof Error ? e.message : String(e);
+  }
 };
 
 /** Nama file unik di folder tujuan: "judul.mp4" → "judul (1).mp4" bila sudah ada. */
@@ -505,6 +618,7 @@ export const createServer = () =>
             version: VERSION,
             ytdlp: engine.ytdlpVersion,
             ffmpeg: engine.ffmpegVersion,
+            ffprobe: !!engine.ffprobeCmd,
             downloadDir: DOWNLOAD_DIR,
             platform: process.platform,
             active,
@@ -544,7 +658,7 @@ export const createServer = () =>
         if (!job) return send(res, 404, { error: 'Job tidak ditemukan' }, origin);
         if (req.method === 'GET') return send(res, 200, publicJob(job), origin);
         if (req.method === 'DELETE') {
-          if (['queued', 'downloading', 'processing'].includes(job.status)) cancelJob(job);
+          if (['queued', 'downloading', 'processing', 'converting'].includes(job.status)) cancelJob(job);
           else jobs.delete(job.id);
           return send(res, 200, { ok: true }, origin);
         }

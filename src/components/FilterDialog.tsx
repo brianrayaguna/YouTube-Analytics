@@ -96,7 +96,7 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onOpenChange, filters
             options={['all', 'long', 'shorts']}
             value={filters.contentType}
             onSelect={v => set('contentType', v)}
-            labelOf={v => ({ all: 'Semua', long: 'Video', shorts: 'Shorts' })[v]}
+            labelOf={v => ({ all: 'Semua', long: 'Video (> 3 menit)', shorts: 'Shorts (≤ 3 menit)' })[v]}
             defaultValue="all"
           />
           <Column<DurationRange>

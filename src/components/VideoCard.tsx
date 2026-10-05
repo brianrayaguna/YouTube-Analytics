@@ -216,17 +216,21 @@ const VideoCard: React.FC<VideoCardProps> = ({
 
   const badges = (
     <div className="mt-1 flex flex-wrap items-center gap-1">
-      <span
-        className={cn(
-          'rounded-sm px-1 py-px text-xs font-medium',
-          video.engagementRate >= 5
-            ? 'bg-success/15 text-success'
-            : 'bg-secondary text-muted-foreground'
-        )}
-        title="Engagement rate = (likes + komentar) / views"
-      >
-        ER {video.engagementRate}%
-      </span>
+      {video.likesHidden ? (
+        <span className="rounded-sm bg-secondary px-1 py-px text-xs font-medium text-muted-foreground" title="Kreator menyembunyikan jumlah like">
+          Like disembunyikan
+        </span>
+      ) : (
+        <span
+          className={cn(
+            'rounded-sm px-1 py-px text-xs font-medium',
+            video.engagementRate >= 5 ? 'bg-success/15 text-success' : 'bg-secondary text-muted-foreground'
+          )}
+          title="Engagement rate = (likes + komentar) / views"
+        >
+          ER {video.engagementRate}%
+        </span>
+      )}
       {video.isOutlier && (
         <span className="rounded-sm bg-youtube-red/10 px-1 py-px text-xs font-medium text-destructive" title="Views ≥ 3× median daftar">
           Outlier

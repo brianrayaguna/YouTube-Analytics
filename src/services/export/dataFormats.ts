@@ -1,0 +1,87 @@
+// Ekspor JSON & CSV
+
+import { Report, REPORT_SCHEMA_VERSION, APP_NAME, sourceLabel, METHODOLOGY } from './reportModel';
+import { SCORE_MODEL } from '../performanceScoreService';
+import { ThumbImage } from './thumbnails';
+
+export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null): Blob => {
+  const { context, summary, rows } = report;
+  const ch = context.channelStats;
+  const payload = {
+    $schema: 'yt-analyzer-report',
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    generator: { name: APP_NAME, scoreModelVersion: SCORE_MODEL.version },
+    generatedAt: context.generatedAt.toISOString(),
+    source: { type: context.source ?? null, label: sourceLabel(context), title: context.title, query: context.query ?? null, scope: context.scopeNote ?? null },
+    channel: ch
+      ? {
+          id: ch.channelId ?? null,
+          title: ch.title ?? null,
+          handle: ch.customUrl || null,
+          subscribers: ch.hiddenSubscriberCount ? null : ch.subCountRaw,
+          totalViews: ch.viewCountRaw ?? null,
+          totalVideos: ch.videoCountRaw ?? null,
+          avatarUrl: ch.avatar || null,
+          bannerUrl: ch.banner || null,
+          description: ch.description || '',
+        }
+      : null,
+    summary,
+    scoring: {
+      model: SCORE_MODEL,
+      glossary: Object.fromEntries(METHODOLOGY),
+    },
+    videos: rows.map(r => ({
+      no: r.no,
+      id: r.id,
+      url: r.url,
+      title: r.title,
+      type: r.type,
+      channel: { id: r.channelId, title: r.channelTitle },
+      publishedAt: r.publishedAt,
+      ageDays: r.ageDays,
+      duration: { seconds: r.durationSec, formatted: r.duration },
+      statistics: { views: r.views, likes: r.likes, comments: r.comments, engagementRate: r.engagementRate, viewsPerDay: r.viewsPerDay },
+      performance: { reachRatio: r.reachRatio, isOutlier: r.isOutlier, cohort: r.scoreCohort, confidence: r.scoreConfidence },
+      scores: {
+        title: { score: r.titleScore, grade: r.titleGrade, components: r.scored.titleScore.components },
+        thumbnail: { score: r.thumbnailScore, grade: r.thumbnailGrade, components: r.scored.thumbnailScore.components },
+      },
+      tags: r.tags,
+      description: r.description,
+      thumbnails: {
+        ...r.thumbnails,
+        hdAvailable: r.thumbnailHd,
+        ...(thumbs?.get(r.id) ? { embedded: thumbs.get(r.id)!.dataUrl } : {}),
+      },
+    })),
+  };
+  return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+};
+
+const csvCell = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  return /[",\n\r;]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+export const buildCsv = (report: Report): Blob => {
+  const headers = [
+    'No', 'Video ID', 'Judul', 'Jenis', 'Tanggal upload', 'Umur (hari)', 'Durasi', 'Durasi (detik)',
+    'Views', 'Likes', 'Komentar', 'Engagement rate (%)', 'Views per hari', 'Rasio jangkauan', 'Outlier',
+    'Skor judul', 'Nilai judul', 'Skor thumbnail', 'Nilai thumbnail', 'Keyakinan skor', 'Kelompok pembanding',
+    'Tag', 'Channel', 'Channel ID', 'URL', 'Thumbnail URL (HQ)',
+  ];
+  const lines = report.rows.map(r =>
+    [
+      r.no, r.id, r.title, r.type, r.publishedAt.slice(0, 10), r.ageDays, r.duration, r.durationSec,
+      r.views, r.likes, r.comments, r.engagementRate, r.viewsPerDay, r.reachRatio, r.isOutlier ? 'Ya' : 'Tidak',
+      r.titleScore, r.titleGrade, r.thumbnailScore, r.thumbnailGrade, r.scoreConfidence, r.scoreCohort,
+      r.tags.join(' | '), r.channelTitle, r.channelId, r.url, r.thumbnails.high,
+    ]
+      .map(csvCell)
+      .join(',')
+  );
+  // BOM agar Excel membaca UTF-8 (judul berbahasa Indonesia/emoji) dengan benar
+  return new Blob(['﻿' + [headers.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+};

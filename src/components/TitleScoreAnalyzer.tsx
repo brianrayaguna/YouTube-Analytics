@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Play, Lightbulb, Search } from 'lucide-react';
+import { Play, Lightbulb, Search, ShieldCheck, ShieldAlert, Info } from 'lucide-react';
 import { VideoItem } from '../types';
-import { calculateAllVideoScores, getGradeDistribution, VideoWithScores, PerformanceScore } from '../services/performanceScoreService';
+import { calculateAllVideoScores, getGradeDistribution, VideoWithScores, PerformanceScore, SCORE_MODEL } from '../services/performanceScoreService';
 import { analyzeTitleScore } from '../services/titleScoreService';
 import { PageHeader, StatCard, SectionCard, StudioTabs } from './common';
 import { cn } from '@/lib/utils';
@@ -22,14 +22,6 @@ const GRADE_STYLE: Record<Grade, { text: string; bg: string; bar: string }> = {
   C: { text: 'text-[#b06000] dark:text-[#fbbf24]', bg: 'bg-[#f9ab00]/15', bar: 'bg-[#f9ab00]' },
   D: { text: 'text-[#e8710a] dark:text-[#fb923c]', bg: 'bg-[#e8710a]/10', bar: 'bg-[#e8710a]' },
   F: { text: 'text-destructive', bg: 'bg-destructive/10', bar: 'bg-destructive' },
-};
-
-const BREAKDOWN_LABELS: Record<string, string> = {
-  views: 'Views',
-  likes: 'Likes',
-  engagement: 'Engagement',
-  text: 'Kualitas teks judul',
-  recency: 'Kecepatan views',
 };
 
 const PAGE = 100;
@@ -84,12 +76,15 @@ const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPrevi
 
   const selected = scored.find(v => v.id === selectedId) ?? sorted[0] ?? null;
   const selectedScore = selected ? scoreOf(selected) : null;
-  const textAnalysis = useMemo(() => (selected ? analyzeTitleScore(selected.title) : null), [selected]);
+  const textAnalysis = useMemo(() => (selected ? analyzeTitleScore(selected.title, { isShort: selected.isShort }) : null), [selected]);
   const best = sorted[0];
 
   return (
     <div>
-      <PageHeader title="Skor Judul & Thumbnail" subtitle="Skor 0–100 dihitung dari performa nyata video dibandingkan video lain dalam analisis ini." />
+      <PageHeader
+        title="Skor Judul & Thumbnail"
+        subtitle="Skor 0–100: jangkauan dibanding video seusia (Shorts vs Shorts, Video vs Video), engagement, dan kualitas judul/thumbnail."
+      />
       <StudioTabs<Tab>
         tabs={[
           { id: 'title', label: 'Skor judul' },
@@ -117,13 +112,24 @@ const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPrevi
               </span>
             ))}
           </div>
+          <p className="mt-2 flex items-start gap-1 text-[11px] leading-4 text-muted-foreground">
+            <Info className="mt-px h-3 w-3 shrink-0" /> A ≥{SCORE_MODEL.grades.A} • B ≥{SCORE_MODEL.grades.B} • C ≥{SCORE_MODEL.grades.C} • D ≥{SCORE_MODEL.grades.D} • C ≈ rata-rata
+          </p>
         </div>
         <div className="yt-card p-4 sm:p-5">
-          <p className="text-sm text-muted-foreground">Bobot penilaian</p>
+          <p className="text-sm text-muted-foreground">Bobot penilaian (model v{SCORE_MODEL.version})</p>
           <ul className="mt-2 space-y-1 text-xs">
             {(tab === 'title'
-              ? [['Views', '35%'], ['Likes', '25%'], ['Engagement', '20%'], ['Teks judul', '20%']]
-              : [['Views (proksi CTR)', '40%'], ['Engagement', '30%'], ['Kecepatan views', '30%']]
+              ? [
+                  ['Jangkauan vs video seusia', `${SCORE_MODEL.title.reach}%`],
+                  ['Engagement (dihaluskan)', `${SCORE_MODEL.title.engagement}%`],
+                  ['Kualitas teks judul', `${SCORE_MODEL.title.text}%`],
+                ]
+              : [
+                  ['Daya klik (jangkauan)', `${SCORE_MODEL.thumbnail.reach}%`],
+                  ['Kesesuaian isi (engagement)', `${SCORE_MODEL.thumbnail.engagement}%`],
+                  ['Kualitas teknis (HD)', `${SCORE_MODEL.thumbnail.technical}%`],
+                ]
             ).map(([k, v]) => (
               <li key={k} className="flex justify-between">
                 <span className="text-muted-foreground">{k}</span>
@@ -234,30 +240,66 @@ const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPrevi
                 </div>
               </div>
 
-              <div className="mt-6 space-y-4">
-                {Object.entries(selectedScore.breakdown)
-                  .filter(([, d]) => d && d.max > 0)
-                  .map(([key, d]) => {
-                    const pct = (d!.score / d!.max) * 100;
-                    return (
-                      <div key={key}>
-                        <div className="flex justify-between text-sm">
-                          <span className="font-medium text-foreground">{BREAKDOWN_LABELS[key] ?? key}</span>
-                          <span className="tabular-nums text-muted-foreground">
-                            {d!.score}/{d!.max}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
-                          <div
-                            className={cn('h-full rounded-full', pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-primary' : pct >= 30 ? 'bg-warning' : 'bg-destructive')}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{d!.label}</p>
-                      </div>
-                    );
-                  })}
+              <div
+                className={cn(
+                  'mt-4 flex items-start gap-2 rounded-lg px-3 py-2 text-xs',
+                  selectedScore.confidence === 'tinggi' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
+                )}
+              >
+                {selectedScore.confidence === 'tinggi' ? <ShieldCheck className="h-4 w-4 shrink-0" /> : <ShieldAlert className="h-4 w-4 shrink-0" />}
+                <span>
+                  Keyakinan {selectedScore.confidence}
+                  {selectedScore.confidenceNote ? ` — ${selectedScore.confidenceNote}` : ''} • dibandingkan dengan {selected.metrics.cohortSize}{' '}
+                  {selected.metrics.cohort === 'Semua' ? 'video' : selected.metrics.cohort}
+                </span>
               </div>
+
+              <div className="mt-5 space-y-4">
+                {selectedScore.components.map(c => (
+                  <div key={c.key}>
+                    <div className="flex justify-between gap-3 text-sm">
+                      <span className="font-medium text-foreground">{c.label}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {c.points}/{c.weight} poin
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={cn('h-full rounded-full', c.value >= 75 ? 'bg-success' : c.value >= 50 ? 'bg-primary' : c.value >= 30 ? 'bg-warning' : 'bg-destructive')}
+                        style={{ width: `${c.value}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Nilai {c.value}/100 • {c.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {tab === 'title' && textAnalysis && (
+                <div className="mt-6">
+                  <p className="text-sm font-medium text-foreground">Cek teks judul ({textAnalysis.totalScore}/100)</p>
+                  <ul className="mt-2 divide-y divide-border rounded-xl border border-border text-sm">
+                    {textAnalysis.checks.map(ch => (
+                      <li key={ch.key} className="flex items-center gap-3 px-3 py-2">
+                        <span
+                          className={cn(
+                            'h-2 w-2 shrink-0 rounded-full',
+                            ch.score / ch.max >= 0.8 ? 'bg-success' : ch.score / ch.max >= 0.5 ? 'bg-warning' : 'bg-destructive'
+                          )}
+                        />
+                        <span className="w-28 shrink-0 text-foreground">{ch.label}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={ch.feedback}>
+                          {ch.feedback}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {ch.score}/{ch.max}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {tab === 'title' && textAnalysis && textAnalysis.suggestions.length > 0 && (
                 <div className="mt-6 rounded-xl bg-secondary p-4">

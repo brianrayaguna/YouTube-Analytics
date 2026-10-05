@@ -3,13 +3,27 @@
 
 export type LocalFormat = 'mp4' | 'mp3';
 export type LocalQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360';
-export type LocalJobStatus = 'queued' | 'downloading' | 'processing' | 'done' | 'error' | 'canceled';
+export type LocalJobStatus = 'queued' | 'downloading' | 'processing' | 'converting' | 'done' | 'error' | 'canceled';
+
+/** Versi server minimum: v1.1.0 memastikan MP4 ber-codec H.264/AAC (bisa diputar di semua pemutar). */
+export const MIN_SERVER_VERSION = '1.1.0';
+
+export const isServerOutdated = (version?: string | null) => {
+  if (!version) return true;
+  const a = version.split('.').map(Number);
+  const b = MIN_SERVER_VERSION.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+  }
+  return false;
+};
 
 export interface LocalHealth {
   ok: boolean;
   version: string;
   ytdlp: string | null;
   ffmpeg: string | null;
+  ffprobe?: boolean;
   downloadDir: string;
   platform: string;
   active: number;
@@ -33,6 +47,10 @@ export interface LocalJob {
   filepath: string | null;
   size?: number;
   error: string | null;
+  videoCodec?: string | null;
+  audioCodec?: string | null;
+  /** Konversi yang dilakukan agar bisa diputar: 'audio' (audio saja) atau 'full' (video ke H.264) */
+  conversion?: 'audio' | 'full' | null;
   createdAt: number;
 }
 
@@ -159,7 +177,11 @@ export const cancelOrRemoveLocalJob = (id: string) =>
 export const openLocalFolder = (jobId?: string) =>
   request<{ ok: boolean }>('/open-folder', { method: 'POST', body: JSON.stringify(jobId ? { jobId } : {}) });
 
-export const isJobActive = (j: LocalJob) => j.status === 'queued' || j.status === 'downloading' || j.status === 'processing';
+export const isJobActive = (j: LocalJob) => ['queued', 'downloading', 'processing', 'converting'].includes(j.status);
+
+const CODEC_LABEL: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', vp9: 'VP9', av1: 'AV1', aac: 'AAC', opus: 'Opus', mp3: 'MP3' };
+export const codecLabel = (j: Pick<LocalJob, 'videoCodec' | 'audioCodec'>) =>
+  [j.videoCodec, j.audioCodec].filter(Boolean).map(c => CODEC_LABEL[c as string] ?? String(c).toUpperCase()).join(' + ');
 
 /** Pantau job sampai selesai (dipakai tombol unduh cepat di kartu video). */
 export const waitForLocalJob = async (id: string, onUpdate?: (job: LocalJob) => void): Promise<LocalJob> => {

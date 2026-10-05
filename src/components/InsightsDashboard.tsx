@@ -185,7 +185,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview }) => {
               </div>
             </SectionCard>
 
-            <SectionCard title="Format konten" description="Perbandingan video panjang dan Shorts">
+            <SectionCard title="Format konten" description="Video panjang (> 3 menit) vs Shorts (≤ 3 menit)">
               <div className="space-y-5">
                 {metrics.formats.map(f => {
                   const share = videos.length ? (f.count / videos.length) * 100 : 0;

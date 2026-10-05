@@ -20,6 +20,12 @@ export interface VideoItem {
   channelId: string;
   isShort: boolean;
   isOutlier?: boolean;
+  /** Jumlah like disembunyikan kreator (likeCount tidak tersedia di API) */
+  likesHidden?: boolean;
+  /** Komentar dinonaktifkan (commentCount tidak tersedia di API) */
+  commentsDisabled?: boolean;
+  /** Thumbnail resolusi 1280×720 tersedia (umumnya thumbnail kustom HD) */
+  thumbnailHd?: boolean;
 }
 
 export interface ChannelStats {
@@ -94,7 +100,6 @@ export interface TrendingRegion {
 declare global {
   interface Window {
     saveAs?: any;
-    XLSX: any;
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
