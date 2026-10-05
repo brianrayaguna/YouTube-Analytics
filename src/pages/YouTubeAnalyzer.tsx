@@ -49,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage, classifyQuery } from '../services/youtubeService';
+import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage, classifyQuery, markOutliers, SEARCH_RESULT_CAP, TRENDING_RESULT_CAP } from '../services/youtubeService';
 import { copyToClipboard } from '../services/exportService';
 import ExportDialog, { ExportScope } from '../components/ExportDialog';
 import { generateZip } from '../services/zipService';
@@ -244,19 +244,22 @@ const YouTubeAnalyzer: React.FC = () => {
   }, [apiKey, showToast]);
 
   const handleAnalyze = useCallback(
-    async (searchQuery: string, limitOverride?: FetchLimit) => {
+    async (searchQuery: string, opts: { limit?: FetchLimit; keepFilters?: boolean } = {}) => {
       const q = searchQuery.trim();
       if (!q || !ensureApiKey()) return;
+      const limit = opts.limit ?? fetchLimit;
       setLoading(true);
       clearSelection();
       // Tetap di halaman analisis yang sedang dibuka, selain itu pindah ke Beranda
       setMode(m => (getNavItem(m)?.needsData ? m : 'dashboard'));
-      scrollTop();
+      if (!opts.keepFilters) scrollTop();
       try {
-        const result = await fetchYouTubeData(apiKey, q, limitOverride ?? fetchLimit);
-        setData(result);
-        setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
-        addToSearchHistory({ query: q, type: classifyQuery(q), resultCount: result.videos.length, title: result.channelTitle });
+        const result = await fetchYouTubeData(apiKey, q, limit);
+        setData({ ...result, requestedLimit: limit });
+        if (!opts.keepFilters) {
+          setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
+          addToSearchHistory({ query: q, type: classifyQuery(q), resultCount: result.videos.length, title: result.channelTitle });
+        }
         showToast(`${formatFullNumber(result.videos.length)} video berhasil dianalisis`, 'success');
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Gagal mengambil data', 'error');
@@ -268,15 +271,15 @@ const YouTubeAnalyzer: React.FC = () => {
   );
 
   const handleTrending = useCallback(
-    async (region: string = trendingRegion, force = false) => {
+    async (region: string = trendingRegion, force = false, limitOverride?: FetchLimit) => {
       setMode('trending');
       clearSelection();
-      scrollTop();
+      if (!limitOverride) scrollTop();
       if (!force && trendingData?.query === region) return;
       if (!ensureApiKey()) return;
       setLoading(true);
       try {
-        const result = await fetchTrendingVideos(apiKey, Math.min(fetchLimit, 200), region);
+        const result = await fetchTrendingVideos(apiKey, Math.min(limitOverride ?? fetchLimit, TRENDING_RESULT_CAP), region);
         setTrendingData(result);
         showToast(`Trending ${TRENDING_REGIONS.find(r => r.code === region)?.name ?? region} dimuat`, 'success');
       } catch (err) {
@@ -286,6 +289,49 @@ const YouTubeAnalyzer: React.FC = () => {
       }
     },
     [apiKey, fetchLimit, trendingRegion, trendingData, ensureApiKey, clearSelection, showToast]
+  );
+
+  /**
+   * Ubah "Jumlah video yang diambil" dan perbarui hasil yang sedang tampil:
+   * - lebih sedikit → potong hasil yang sudah dimuat (tanpa API, urutan sama dengan hasil API: terbaru / urutan playlist / relevansi)
+   * - lebih banyak → analisis ulang (filter tetap), kecuali semua video sudah dimuat
+   */
+  const handleFetchLimitChange = useCallback(
+    (limit: FetchLimit) => {
+      setFetchLimit(limit);
+      if (mode === 'trending') {
+        if (trendingData && Math.min(limit, TRENDING_RESULT_CAP) !== trendingData.videos.length) handleTrending(trendingRegion, true, limit);
+        return;
+      }
+      if (!data?.query || loading) return;
+      const loaded = data.videos.length;
+      const requested = data.requestedLimit ?? loaded;
+      if (limit < loaded) {
+        const videos = markOutliers(data.videos.slice(0, limit));
+        setData({ ...data, videos, totalFound: videos.length, requestedLimit: limit });
+        clearSelection();
+        showToast(`Menampilkan ${formatFullNumber(limit)} video${data.source === 'search' ? ' teratas' : ' terbaru'}`, 'success');
+        return;
+      }
+      if (limit === loaded) {
+        setData({ ...data, requestedLimit: limit });
+        return;
+      }
+      // Sudah semua: channel/playlist punya lebih sedikit video dari permintaan sebelumnya, atau batas pencarian API
+      const exhausted = loaded < requested || (data.source === 'search' && loaded >= SEARCH_RESULT_CAP);
+      if (exhausted) {
+        setData({ ...data, requestedLimit: limit });
+        showToast(
+          data.source === 'search' && loaded >= SEARCH_RESULT_CAP
+            ? `Pencarian kata kunci dibatasi ${SEARCH_RESULT_CAP} video oleh YouTube API`
+            : `Semua ${formatFullNumber(loaded)} video sudah dimuat`,
+          'info'
+        );
+        return;
+      }
+      handleAnalyze(data.query, { limit, keepFilters: true });
+    },
+    [mode, trendingData, trendingRegion, handleTrending, data, loading, clearSelection, showToast, handleAnalyze]
   );
 
   const handleNavigate = useCallback(
@@ -698,7 +744,7 @@ const YouTubeAnalyzer: React.FC = () => {
               data.query && (data.source === 'channel' || data.source === 'playlist')
                 ? limit => {
                     setFetchLimit(limit);
-                    handleAnalyze(data.query!, limit);
+                    handleAnalyze(data.query!, { limit, keepFilters: true });
                   }
                 : undefined
             }
@@ -866,7 +912,7 @@ const YouTubeAnalyzer: React.FC = () => {
         filters={filters}
         onChange={setFilters}
         fetchLimit={fetchLimit}
-        onFetchLimitChange={setFetchLimit}
+        onFetchLimitChange={handleFetchLimitChange}
       />
 
       <Toast toast={toast} onDismiss={() => setToast(null)} raised={selectMode && GRID_MODES.includes(mode)} />
