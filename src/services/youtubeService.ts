@@ -7,9 +7,9 @@ export { formatNumber, formatDuration } from '../lib/format';
 const API_BASE = 'https://www.googleapis.com/youtube/v3';
 
 /** Batas hasil yang bisa diberikan endpoint search YouTube Data API */
-const SEARCH_RESULT_CAP = 500;
+export const SEARCH_RESULT_CAP = 500;
 /** Endpoint chart=mostPopular hanya menyediakan maksimal 200 video */
-const TRENDING_RESULT_CAP = 200;
+export const TRENDING_RESULT_CAP = 200;
 
 // --- QUOTA & CACHE MANAGER ---
 const QUOTA_KEY = 'yt_quota_usage_v1';

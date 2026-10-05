@@ -56,6 +56,8 @@ export interface AnalyzedData {
   query?: string;
   /** Pesan informasi tambahan (mis. batas hasil pencarian API) */
   notice?: string;
+  /** Jumlah video yang diminta saat analisis (pengaturan "Jumlah video yang diambil") */
+  requestedLimit?: number;
 }
 
 // Mode navigasi

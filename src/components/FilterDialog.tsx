@@ -165,7 +165,9 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onOpenChange, filters
 
         <div className="mx-6 rounded-xl bg-secondary p-4">
           <h3 className="text-sm font-medium text-foreground">Jumlah video yang diambil</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Berlaku untuk analisis berikutnya. Nilai besar memakai lebih banyak kuota.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Hasil yang sedang tampil langsung diperbarui. Mengurangi jumlah tidak memakai kuota; menambah akan mengambil ulang dari YouTube.
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {FETCH_LIMITS.map(l => (
               <button
