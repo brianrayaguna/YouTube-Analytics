@@ -1,408 +1,518 @@
-import { VideoItem, AnalyzedData, FetchLimit, ChannelStats } from '../types';
+import { VideoItem, AnalyzedData, ChannelStats } from '../types';
+import { formatNumber, formatDuration, timeAgo, median } from '../lib/format';
+
+export { formatNumber, formatDuration } from '../lib/format';
+
+const API_BASE = 'https://www.googleapis.com/youtube/v3';
+
+/** Batas hasil yang bisa diberikan endpoint search YouTube Data API */
+const SEARCH_RESULT_CAP = 500;
+/** Endpoint chart=mostPopular hanya menyediakan maksimal 200 video */
+const TRENDING_RESULT_CAP = 200;
 
 // --- QUOTA & CACHE MANAGER ---
 const QUOTA_KEY = 'yt_quota_usage_v1';
 const DATE_KEY = 'yt_quota_date_v1';
 const CACHE_PREFIX = 'yt_cache_';
+const CACHE_TTL_MS = 60 * 60 * 1000;
+
+export const QUOTA_LIMIT = 10000;
+
+// Kuota YouTube Data API direset tengah malam waktu Pasifik
+const quotaDay = () => new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
 
 export const getQuotaUsage = (): number => {
-  const today = new Date().toDateString();
-  const savedDate = localStorage.getItem(DATE_KEY);
-  if (savedDate !== today) {
-    localStorage.setItem(DATE_KEY, today);
-    localStorage.setItem(QUOTA_KEY, '0');
+  try {
+    const today = quotaDay();
+    if (localStorage.getItem(DATE_KEY) !== today) {
+      localStorage.setItem(DATE_KEY, today);
+      localStorage.setItem(QUOTA_KEY, '0');
+      return 0;
+    }
+    return parseInt(localStorage.getItem(QUOTA_KEY) || '0', 10) || 0;
+  } catch {
     return 0;
   }
-  return parseInt(localStorage.getItem(QUOTA_KEY) || '0', 10);
 };
 
 const trackQuota = (cost: number) => {
-  const current = getQuotaUsage();
-  const newest = current + cost;
-  localStorage.setItem(QUOTA_KEY, newest.toString());
+  try {
+    localStorage.setItem(QUOTA_KEY, String(getQuotaUsage() + cost));
+  } catch {
+    // localStorage penuh / tidak tersedia — abaikan
+  }
   window.dispatchEvent(new Event('quotaUpdated'));
 };
 
-const getCache = (key: string) => {
-  const data = localStorage.getItem(CACHE_PREFIX + key);
-  if (!data) return null;
+const reviveVideo = (v: VideoItem): VideoItem => ({
+  ...v,
+  publishedAtDate: new Date(v.publishedAt),
+  publishedTimeAgo: timeAgo(v.publishedAt),
+});
+
+const getCache = (key: string): AnalyzedData | null => {
   try {
-    const parsed = JSON.parse(data);
-    const now = new Date().getTime();
-    // Cache expires after 1 hour
-    if (now - parsed.timestamp > 3600000) {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp > CACHE_TTL_MS) {
       localStorage.removeItem(CACHE_PREFIX + key);
       return null;
     }
-    return parsed.value;
+    const value = parsed.value as AnalyzedData;
+    return { ...value, videos: value.videos.map(reviveVideo) };
   } catch {
     return null;
   }
 };
 
-const setCache = (key: string, value: any) => {
-  localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({
-    value,
-    timestamp: new Date().getTime()
-  }));
-};
-
-// --- HELPERS ---
-const parseDuration = (duration: string): number => {
-  const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-  if (!match) return 0;
-  const hours = parseInt(match[1] || '0');
-  const minutes = parseInt(match[2] || '0');
-  const seconds = parseInt(match[3] || '0');
-  return (hours * 3600) + (minutes * 60) + seconds;
-};
-
-export const formatDuration = (seconds: number): string => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
-
-export const formatNumber = (numStr: string | number): string => {
-  const num = Number(numStr);
-  if (isNaN(num)) return '0';
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
-
-const timeAgo = (dateString: string): string => {
-  const date = new Date(dateString);
-  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-  let interval = seconds / 31536000;
-  if (interval > 1) return Math.floor(interval) + " tahun lalu";
-  interval = seconds / 2592000;
-  if (interval > 1) return Math.floor(interval) + " bulan lalu";
-  interval = seconds / 86400;
-  if (interval > 1) return Math.floor(interval) + " hari lalu";
-  interval = seconds / 3600;
-  if (interval > 1) return Math.floor(interval) + " jam lalu";
-  return "Baru saja";
-};
-
-// --- CORE LOGIC ---
-const fetchVideoDetails = async (apiKey: string, videoIds: string[], subCount?: number): Promise<VideoItem[]> => {
-  if (!videoIds.length) return [];
-  const chunkSize = 50;
-  let allItems: any[] = [];
-
-  for (let i = 0; i < videoIds.length; i += chunkSize) {
-    const chunk = videoIds.slice(i, i + chunkSize);
-    const idsString = chunk.join(',');
-    trackQuota(1);
-    const vRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${idsString}&key=${apiKey}`);
-    const vData = await vRes.json();
-    if (vData.items) allItems = [...allItems, ...vData.items];
+export const clearAnalysisCache = (): number => {
+  let removed = 0;
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(CACHE_PREFIX))
+      .forEach(k => {
+        localStorage.removeItem(k);
+        removed++;
+      });
+  } catch {
+    // abaikan
   }
+  return removed;
+};
 
-  return allItems.map((v: any) => {
-    const dur = parseDuration(v.contentDetails.duration);
-    const thumbnails = v.snippet.thumbnails;
-    const thumbObj = thumbnails.maxres || thumbnails.high || thumbnails.medium || thumbnails.default;
-    const views = Number(v.statistics.viewCount || 0);
-    const likes = Number(v.statistics.likeCount || 0);
-    const comments = Number(v.statistics.commentCount || 0);
-    let er = views > 0 ? ((likes + comments) / views) * 100 : 0;
+const setCache = (key: string, value: AnalyzedData) => {
+  const payload = JSON.stringify({ value, timestamp: Date.now() });
+  try {
+    localStorage.setItem(CACHE_PREFIX + key, payload);
+  } catch {
+    // Storage penuh: hapus cache lama lalu coba sekali lagi. Jika tetap gagal, lewati cache.
+    clearAnalysisCache();
+    try {
+      localStorage.setItem(CACHE_PREFIX + key, payload);
+    } catch {
+      // data terlalu besar untuk di-cache
+    }
+  }
+};
 
-    // Detect Shorts: Duration <= 60 seconds
-    const isShort = dur <= 60;
+// --- API HELPER ---
+export class YouTubeApiError extends Error {
+  reason?: string;
+  status?: number;
+  constructor(message: string, reason?: string, status?: number) {
+    super(message);
+    this.name = 'YouTubeApiError';
+    this.reason = reason;
+    this.status = status;
+  }
+}
 
-    return {
-      id: v.id,
-      title: v.snippet.title,
-      description: v.snippet.description || "",
-      thumbnail: thumbObj?.url || "",
-      views: formatNumber(views),
-      viewCountRaw: views,
-      likes: formatNumber(likes),
-      likeCountRaw: likes,
-      comments: formatNumber(comments),
-      commentCountRaw: comments,
-      engagementRate: parseFloat(er.toFixed(2)),
-      tags: v.snippet.tags || [],
-      publishedAt: v.snippet.publishedAt,
-      publishedAtDate: new Date(v.snippet.publishedAt),
-      publishedTimeAgo: timeAgo(v.snippet.publishedAt),
-      durationSec: dur,
-      durationFormatted: formatDuration(dur),
-      channelTitle: v.snippet.channelTitle,
-      channelId: v.snippet.channelId,
-      isShort: isShort,
-      isOutlier: subCount ? (views > subCount * 1.5) : (er > 12)
-    };
+const describeApiError = (reason: string | undefined, fallback: string): string => {
+  switch (reason) {
+    case 'quotaExceeded':
+    case 'dailyLimitExceeded':
+      return 'Kuota YouTube API harian sudah habis. Coba lagi besok atau gunakan API key lain.';
+    case 'keyInvalid':
+    case 'badRequest':
+      return fallback.toLowerCase().includes('api key')
+        ? 'API Key tidak valid. Periksa kembali di Pengaturan.'
+        : fallback;
+    case 'accessNotConfigured':
+    case 'SERVICE_DISABLED':
+      return 'YouTube Data API v3 belum diaktifkan untuk API key ini di Google Cloud Console.';
+    case 'keyExpired':
+      return 'API Key sudah kedaluwarsa. Buat API key baru.';
+    case 'forbidden':
+    case 'ipRefererBlocked':
+      return 'API Key tidak diizinkan untuk domain/aplikasi ini (cek pembatasan API key).';
+    case 'playlistNotFound':
+      return 'Playlist tidak ditemukan atau bersifat privat.';
+    case 'channelNotFound':
+      return 'Channel tidak ditemukan.';
+    case 'rateLimitExceeded':
+    case 'userRateLimitExceeded':
+      return 'Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.';
+    default:
+      return fallback || 'Terjadi kesalahan saat menghubungi YouTube API.';
+  }
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- respons YouTube API bervariasi per endpoint
+type ApiResponse = any;
+
+const apiGet = async (
+  endpoint: string,
+  params: Record<string, string | number | undefined>,
+  apiKey: string,
+  cost = 1
+): Promise<ApiResponse> => {
+  const url = new URL(`${API_BASE}/${endpoint}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   });
-};
+  url.searchParams.set('key', apiKey);
 
-export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, regionCode: string = 'ID'): Promise<AnalyzedData> => {
-  let videoIds: string[] = [];
-  let pageToken = "";
+  trackQuota(cost);
 
-  while (videoIds.length < limit) {
-    trackQuota(1);
-    const maxResults = Math.min(limit - videoIds.length, 50);
-    const chartUrl = `https://www.googleapis.com/youtube/v3/videos?part=id&chart=mostPopular&maxResults=${maxResults}&regionCode=${regionCode}${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`;
-
-    const res = await fetch(chartUrl);
-    const data = await res.json();
-
-    if (!data.items?.length) break;
-
-    const ids = data.items.map((i: any) => i.id);
-    videoIds = [...videoIds, ...ids];
-    pageToken = data.nextPageToken;
-
-    if (!pageToken) break;
+  let res: Response;
+  try {
+    res = await fetch(url.toString());
+  } catch {
+    throw new YouTubeApiError('Gagal terhubung ke YouTube API. Periksa koneksi internet.');
   }
 
-  const videos = await fetchVideoDetails(apiKey, videoIds);
+  let data: ApiResponse = null;
+  try {
+    data = await res.json();
+  } catch {
+    // body kosong / bukan JSON
+  }
+
+  if (!res.ok || data?.error) {
+    const reason: string | undefined =
+      data?.error?.errors?.[0]?.reason || data?.error?.details?.[0]?.reason || data?.error?.status;
+    const message: string = data?.error?.message || `HTTP ${res.status}`;
+    throw new YouTubeApiError(describeApiError(reason, message), reason, res.status);
+  }
+  return data;
+};
+
+/** Cek API key dengan request termurah (1 unit). */
+export const validateApiKey = async (apiKey: string): Promise<void> => {
+  if (!apiKey.trim()) throw new YouTubeApiError('API Key masih kosong.');
+  await apiGet('videos', { part: 'id', chart: 'mostPopular', maxResults: 1, regionCode: 'US' }, apiKey.trim(), 1);
+};
+
+// --- PARSING ---
+const parseIsoDuration = (duration: string | undefined): number => {
+  const match = duration?.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  const [, d, h, m, s] = match.map(x => parseInt(x || '0', 10));
+  return d * 86400 + h * 3600 + m * 60 + s;
+};
+
+const SHORTS_HASHTAG = /#shorts?\b/i;
+
+const mapVideo = (v: ApiResponse): VideoItem => {
+  const dur = parseIsoDuration(v.contentDetails?.duration);
+  const thumbs = v.snippet?.thumbnails || {};
+  const thumbObj = thumbs.maxres || thumbs.standard || thumbs.high || thumbs.medium || thumbs.default;
+  const views = Number(v.statistics?.viewCount || 0);
+  const likes = Number(v.statistics?.likeCount || 0);
+  const comments = Number(v.statistics?.commentCount || 0);
+  const er = views > 0 ? ((likes + comments) / views) * 100 : 0;
+  const title: string = v.snippet?.title || '(Tanpa judul)';
+  const description: string = v.snippet?.description || '';
+  // Shorts: ≤60 dtk, atau ≤3 menit dengan tagar #shorts (batas Shorts sejak Okt 2024)
+  const isShort = dur > 0 && (dur <= 60 || (dur <= 180 && SHORTS_HASHTAG.test(`${title} ${description}`)));
 
   return {
-    videos: videos,
-    channelTitle: `Trending Topics (${regionCode})`,
-    totalFound: videos.length
+    id: v.id,
+    title,
+    description,
+    thumbnail: thumbObj?.url || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+    views: formatNumber(views),
+    viewCountRaw: views,
+    likes: formatNumber(likes),
+    likeCountRaw: likes,
+    comments: formatNumber(comments),
+    commentCountRaw: comments,
+    engagementRate: parseFloat(er.toFixed(2)),
+    tags: v.snippet?.tags || [],
+    publishedAt: v.snippet?.publishedAt,
+    publishedAtDate: new Date(v.snippet?.publishedAt),
+    publishedTimeAgo: timeAgo(v.snippet?.publishedAt),
+    durationSec: dur,
+    durationFormatted: formatDuration(dur),
+    channelTitle: v.snippet?.channelTitle || '',
+    channelId: v.snippet?.channelId || '',
+    isShort,
+    isOutlier: false,
   };
 };
 
-// Helper to resolve channel handle/username to channel ID
-const resolveChannelId = async (apiKey: string, handle: string): Promise<{ channelId: string; channelTitle: string } | null> => {
-  // Clean handle - remove @ if present
-  const cleanHandle = handle.startsWith('@') ? handle.substring(1) : handle;
-  
-  // Try using channels endpoint with forHandle (newer API)
-  trackQuota(1);
+/** Tandai outlier: views ≥ 3× median views daftar (minimal 5 video). */
+export const markOutliers = (videos: VideoItem[]): VideoItem[] => {
+  if (videos.length < 5) return videos.map(v => ({ ...v, isOutlier: false }));
+  const med = median(videos.map(v => v.viewCountRaw));
+  return videos.map(v => ({ ...v, isOutlier: med > 0 && v.viewCountRaw >= med * 3 }));
+};
+
+const fetchVideoDetails = async (apiKey: string, videoIds: string[]): Promise<VideoItem[]> => {
+  const unique = Array.from(new Set(videoIds.filter(Boolean)));
+  const items: ApiResponse[] = [];
+  for (let i = 0; i < unique.length; i += 50) {
+    const chunk = unique.slice(i, i + 50);
+    const data = await apiGet('videos', { part: 'snippet,contentDetails,statistics', id: chunk.join(','), maxResults: 50 }, apiKey);
+    if (data.items) items.push(...data.items);
+  }
+  // Pertahankan urutan asli (mis. urutan playlist)
+  const order = new Map(unique.map((id, i) => [id, i]));
+  return items.map(mapVideo).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+};
+
+const fetchPlaylistVideoIds = async (apiKey: string, playlistId: string, limit: number): Promise<string[]> => {
+  const ids: string[] = [];
+  let pageToken = '';
+  while (ids.length < limit) {
+    const data = await apiGet('playlistItems', {
+      part: 'contentDetails',
+      playlistId,
+      maxResults: Math.min(limit - ids.length, 50),
+      pageToken,
+    }, apiKey);
+    if (!data.items?.length) break;
+    ids.push(...data.items.map((i: ApiResponse) => i.contentDetails?.videoId).filter(Boolean));
+    pageToken = data.nextPageToken || '';
+    if (!pageToken) break;
+  }
+  return ids;
+};
+
+// --- INPUT PARSER ---
+export type ParsedQuery =
+  | { kind: 'playlist'; id: string }
+  | { kind: 'video'; id: string }
+  | { kind: 'channelId'; id: string }
+  | { kind: 'handle'; handle: string }
+  | { kind: 'username'; name: string }
+  | { kind: 'customUrl'; name: string }
+  | { kind: 'search'; q: string };
+
+const CHANNEL_ID_RE = /^UC[\w-]{22}$/;
+const VIDEO_ID_RE = /^[\w-]{11}$/;
+
+export const parseYouTubeQuery = (raw: string): ParsedQuery => {
+  const input = raw.trim();
+
+  if (/^@[\p{L}\p{N}._·-]+$/u.test(input)) return { kind: 'handle', handle: input.slice(1) };
+  if (CHANNEL_ID_RE.test(input)) return { kind: 'channelId', id: input };
+
+  let url: URL | null = null;
+  if (/^(https?:\/\/)?([\w-]+\.)*(youtube\.com|youtu\.be)\//i.test(input)) {
+    try {
+      url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+    } catch {
+      url = null;
+    }
+  }
+  if (!url) return { kind: 'search', q: input };
+
+  const host = url.hostname.replace(/^www\.|^m\.|^music\./, '');
+  const path = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const list = url.searchParams.get('list');
+  const v = url.searchParams.get('v');
+
+  if (host === 'youtu.be' && path[0] && VIDEO_ID_RE.test(path[0])) {
+    if (list && !list.startsWith('RD')) return { kind: 'playlist', id: list };
+    return { kind: 'video', id: path[0] };
+  }
+  // Mix/Radio (RD...) tidak bisa diakses lewat API → pakai videonya
+  if (list && !list.startsWith('RD')) return { kind: 'playlist', id: list };
+  if (v && VIDEO_ID_RE.test(v)) return { kind: 'video', id: v };
+  if (['shorts', 'live', 'embed', 'v'].includes(path[0]) && path[1] && VIDEO_ID_RE.test(path[1])) {
+    return { kind: 'video', id: path[1] };
+  }
+  if (path[0]?.startsWith('@')) return { kind: 'handle', handle: path[0].slice(1) };
+  if (path[0] === 'channel' && path[1]) return { kind: 'channelId', id: path[1] };
+  if (path[0] === 'user' && path[1]) return { kind: 'username', name: path[1] };
+  if (path[0] === 'c' && path[1]) return { kind: 'customUrl', name: path[1] };
+  if (path[0] && !['watch', 'results', 'feed', 'playlist'].includes(path[0])) {
+    return { kind: 'customUrl', name: path[0] };
+  }
+  return { kind: 'search', q: url.searchParams.get('search_query') || input };
+};
+
+export const classifyQuery = (raw: string): 'channel' | 'playlist' | 'keyword' => {
+  const parsed = parseYouTubeQuery(raw);
+  if (parsed.kind === 'playlist') return 'playlist';
+  if (parsed.kind === 'search') return 'keyword';
+  return 'channel';
+};
+
+/** Ubah input channel (ID, @handle, URL, username) menjadi channel ID. */
+export const resolveChannelId = async (apiKey: string, raw: string): Promise<string> => {
+  const parsed = parseYouTubeQuery(raw);
+  switch (parsed.kind) {
+    case 'channelId':
+      return parsed.id;
+    case 'handle': {
+      const data = await apiGet('channels', { part: 'id', forHandle: parsed.handle }, apiKey);
+      if (data.items?.[0]?.id) return data.items[0].id;
+      break;
+    }
+    case 'username': {
+      const data = await apiGet('channels', { part: 'id', forUsername: parsed.name }, apiKey);
+      if (data.items?.[0]?.id) return data.items[0].id;
+      break;
+    }
+    case 'video': {
+      const data = await apiGet('videos', { part: 'snippet', id: parsed.id }, apiKey);
+      if (data.items?.[0]?.snippet?.channelId) return data.items[0].snippet.channelId;
+      throw new YouTubeApiError('Video tidak ditemukan atau bersifat privat.');
+    }
+    default:
+      break;
+  }
+
+  // Fallback: cari channel (100 unit)
+  const q = parsed.kind === 'handle' ? parsed.handle
+    : parsed.kind === 'username' || parsed.kind === 'customUrl' ? parsed.name
+    : parsed.kind === 'search' ? parsed.q
+    : raw;
+  const search = await apiGet('search', { part: 'snippet', type: 'channel', q, maxResults: 1 }, apiKey, 100);
+  const id = search.items?.[0]?.id?.channelId || search.items?.[0]?.snippet?.channelId;
+  if (!id) throw new YouTubeApiError(`Channel "${raw.trim()}" tidak ditemukan. Pastikan nama/handle benar.`);
+  return id;
+};
+
+// --- PUBLIC API ---
+export const fetchChannelInfo = async (apiKey: string, channelId: string): Promise<ChannelStats | undefined> => {
+  const data = await apiGet('channels', { part: 'snippet,statistics,brandingSettings', id: channelId }, apiKey);
+  const ch = data.items?.[0];
+  if (!ch) return undefined;
+  const subs = Number(ch.statistics?.subscriberCount || 0);
+  const views = Number(ch.statistics?.viewCount || 0);
+  const videos = Number(ch.statistics?.videoCount || 0);
+  const thumbs = ch.snippet?.thumbnails || {};
+  return {
+    channelId: ch.id,
+    title: ch.snippet?.title || '',
+    subscriberCount: formatNumber(subs),
+    subCountRaw: subs,
+    hiddenSubscriberCount: !!ch.statistics?.hiddenSubscriberCount,
+    viewCount: formatNumber(views),
+    viewCountRaw: views,
+    videoCount: formatNumber(videos),
+    videoCountRaw: videos,
+    customUrl: ch.snippet?.customUrl || '',
+    description: ch.snippet?.description || '',
+    avatar: (thumbs.high || thumbs.medium || thumbs.default)?.url || '',
+    banner: ch.brandingSettings?.image?.bannerExternalUrl || '',
+  };
+};
+
+/** Ambil video terbaru dari uploads playlist sebuah channel. */
+export const fetchChannelUploads = async (apiKey: string, channelId: string, limit: number): Promise<VideoItem[]> => {
+  // Uploads playlist selalu "UU" + sisa channel ID — hemat 1 request
+  const uploadsId = `UU${channelId.slice(2)}`;
+  let ids: string[] = [];
   try {
-    const handleRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=${encodeURIComponent(cleanHandle)}&key=${apiKey}`);
-    const handleData = await handleRes.json();
-    
-    if (handleData.items?.[0]) {
-      return {
-        channelId: handleData.items[0].id,
-        channelTitle: handleData.items[0].snippet.title
-      };
-    }
+    ids = await fetchPlaylistVideoIds(apiKey, uploadsId, limit);
   } catch (e) {
-    console.log('Handle lookup failed, trying search...');
+    if (!(e instanceof YouTubeApiError) || e.reason !== 'playlistNotFound') throw e;
   }
-
-  // Fallback to search API
-  trackQuota(100);
-  const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(cleanHandle)}&maxResults=1&key=${apiKey}`);
-  const searchData = await searchRes.json();
-  
-  if (searchData.items?.[0]) {
-    return {
-      channelId: searchData.items[0].id.channelId || searchData.items[0].snippet.channelId,
-      channelTitle: searchData.items[0].snippet.title
-    };
-  }
-  
-  return null;
+  if (!ids.length) return [];
+  return fetchVideoDetails(apiKey, ids);
 };
 
-// Helper to fetch all videos from a channel
-const fetchChannelVideos = async (apiKey: string, channelId: string, limit: number): Promise<string[]> => {
-  let videoIds: string[] = [];
-  let pageToken = "";
-
-  // First, try to get the uploads playlist for the channel (more reliable)
-  trackQuota(1);
-  const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`);
-  const channelData = await channelRes.json();
-  
-  const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  
-  if (uploadsPlaylistId) {
-    // Use playlist items - more reliable and cheaper quota
-    while (videoIds.length < limit) {
-      trackQuota(1);
-      const maxResults = Math.min(limit - videoIds.length, 50);
-      const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
-      const data = await res.json();
-      
-      if (!data.items?.length) break;
-      
-      const ids = data.items.map((i: any) => i.contentDetails.videoId).filter(Boolean);
-      videoIds = [...videoIds, ...ids];
-      pageToken = data.nextPageToken || "";
-      
-      if (!pageToken) break;
-    }
-  } else {
-    // Fallback to search API
-    while (videoIds.length < limit) {
-      trackQuota(100);
-      const maxResults = Math.min(limit - videoIds.length, 50);
-      const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=id&channelId=${channelId}&maxResults=${maxResults}&order=date&type=video${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
-      const data = await res.json();
-      
-      if (!data.items?.length) break;
-      
-      videoIds = [...videoIds, ...data.items.map((i: any) => i.id.videoId).filter(Boolean)];
-      pageToken = data.nextPageToken || "";
-      
-      if (!pageToken) break;
-    }
+export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, regionCode: string = 'ID'): Promise<AnalyzedData> => {
+  const target = Math.min(limit, TRENDING_RESULT_CAP);
+  const items: ApiResponse[] = [];
+  let pageToken = '';
+  while (items.length < target) {
+    const data = await apiGet('videos', {
+      part: 'snippet,contentDetails,statistics',
+      chart: 'mostPopular',
+      regionCode,
+      maxResults: Math.min(target - items.length, 50),
+      pageToken,
+    }, apiKey);
+    if (!data.items?.length) break;
+    items.push(...data.items);
+    pageToken = data.nextPageToken || '';
+    if (!pageToken) break;
   }
 
-  return videoIds;
+  const videos = markOutliers(items.map(mapVideo));
+  return {
+    videos,
+    channelTitle: `Trending (${regionCode})`,
+    totalFound: videos.length,
+    source: 'trending',
+    query: regionCode,
+    notice: limit > TRENDING_RESULT_CAP ? `YouTube hanya menyediakan maksimal ${TRENDING_RESULT_CAP} video trending.` : undefined,
+  };
 };
 
-// Detect if query is a channel handle or username
-const isChannelHandle = (query: string): boolean => {
-  const trimmed = query.trim();
-  // Matches @username pattern (direct handle input)
-  if (/^@[\w.-]+$/.test(trimmed)) return true;
-  // Matches YouTube channel URL patterns
-  if (trimmed.includes('youtube.com/@')) return true;
-  if (trimmed.includes('youtube.com/channel/')) return true;
-  if (trimmed.includes('youtube.com/c/')) return true;
-  if (trimmed.includes('youtube.com/user/')) return true;
-  return false;
-};
-
-// Extract handle from query
-const extractHandle = (query: string): string => {
-  const trimmed = query.trim();
-  
-  // Direct @handle input
-  if (/^@[\w.-]+$/.test(trimmed)) {
-    return trimmed;
-  }
-  
-  // From URL: youtube.com/@handle
-  if (trimmed.includes('/@')) {
-    const match = trimmed.match(/@([\w.-]+)/);
-    return match ? `@${match[1]}` : trimmed;
-  }
-  
-  // From URL: youtube.com/channel/UCxxxx
-  if (trimmed.includes('/channel/')) {
-    return trimmed.split('/channel/')[1].split(/[?&/]/)[0];
-  }
-  
-  // From URL: youtube.com/c/ChannelName or youtube.com/user/username
-  if (trimmed.includes('/c/') || trimmed.includes('/user/')) {
-    const parts = trimmed.split('/');
-    return parts[parts.length - 1].split(/[?&]/)[0];
-  }
-  
-  return trimmed;
-};
-
-export const fetchYouTubeData = async (apiKey: string, query: string, limit: FetchLimit): Promise<AnalyzedData> => {
+export const fetchYouTubeData = async (apiKey: string, query: string, limit: number): Promise<AnalyzedData> => {
   const cleanQuery = query.trim();
+  if (!cleanQuery) throw new YouTubeApiError('Masukkan nama channel, URL, atau kata kunci.');
+
   const cacheKey = `analysis_${cleanQuery}_${limit}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
-  let videoIds: string[] = [];
-  let pageToken = "";
-  let channelTitle = "Pencarian";
-  let channelId = "";
+  const parsed = parseYouTubeQuery(cleanQuery);
+  let result: AnalyzedData;
 
-  // Detect Playlist URL
-  const playlistMatch = cleanQuery.match(/[&?]list=([^&]+)/);
-
-  if (playlistMatch) {
-    // --- PLAYLIST MODE ---
-    const playlistId = playlistMatch[1];
-    while (videoIds.length < limit) {
-      trackQuota(1);
-      const maxResults = Math.min(limit - videoIds.length, 50);
-      const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=${maxResults}${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
-      const data = await res.json();
+  if (parsed.kind === 'playlist') {
+    const ids = await fetchPlaylistVideoIds(apiKey, parsed.id, limit);
+    if (!ids.length) throw new YouTubeApiError('Playlist kosong atau tidak bisa diakses.');
+    const [videos, meta] = await Promise.all([
+      fetchVideoDetails(apiKey, ids),
+      apiGet('playlists', { part: 'snippet', id: parsed.id }, apiKey).catch(() => null),
+    ]);
+    const snippet = meta?.items?.[0]?.snippet;
+    result = {
+      videos: markOutliers(videos),
+      channelTitle: snippet?.title ? `Playlist: ${snippet.title}` : 'Playlist',
+      channelId: snippet?.channelId,
+      totalFound: videos.length,
+      source: 'playlist',
+      query: cleanQuery,
+    };
+  } else if (parsed.kind === 'search') {
+    const target = Math.min(limit, SEARCH_RESULT_CAP);
+    const ids: string[] = [];
+    let pageToken = '';
+    while (ids.length < target) {
+      const data = await apiGet('search', {
+        part: 'id',
+        q: parsed.q,
+        type: 'video',
+        maxResults: Math.min(target - ids.length, 50),
+        pageToken,
+      }, apiKey, 100);
       if (!data.items?.length) break;
-      videoIds = [...videoIds, ...data.items.map((i: any) => i.contentDetails.videoId)];
-      pageToken = data.nextPageToken;
+      ids.push(...data.items.map((i: ApiResponse) => i.id?.videoId).filter(Boolean));
+      pageToken = data.nextPageToken || '';
       if (!pageToken) break;
     }
-    channelTitle = "Playlist Content";
-  }
-  else if (isChannelHandle(cleanQuery)) {
-    // --- CHANNEL MODE (Handle, URL, or @username) ---
-    const handle = extractHandle(cleanQuery);
-    
-    // Check if it's already a channel ID (starts with UC)
-    if (handle.startsWith('UC') && handle.length === 24) {
-      channelId = handle;
-    } else {
-      // Resolve handle to channel ID
-      const resolved = await resolveChannelId(apiKey, handle);
-      if (resolved) {
-        channelId = resolved.channelId;
-        channelTitle = resolved.channelTitle;
-      }
-    }
-
-    if (channelId) {
-      videoIds = await fetchChannelVideos(apiKey, channelId, limit);
-    }
-
-    if (!channelId || !videoIds.length) {
-      throw new Error(`Channel "${handle}" tidak ditemukan. Pastikan nama channel benar.`);
-    }
-  }
-  else {
-    // --- SEARCH MODE (General keyword search) ---
-    while (videoIds.length < limit) {
-      trackQuota(100);
-      const maxResults = Math.min(limit - videoIds.length, 50);
-      const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=id&q=${encodeURIComponent(cleanQuery)}&maxResults=${maxResults}&type=video${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
-      const data = await res.json();
-      if (!data.items?.length) break;
-      videoIds = [...videoIds, ...data.items.map((i: any) => i.id.videoId)];
-      pageToken = data.nextPageToken;
-      if (!pageToken) break;
-    }
-  }
-
-  if (!videoIds.length) throw new Error("Tidak ada video yang ditemukan.");
-
-  let stats;
-  if (channelId) stats = await fetchChannelInfo(apiKey, channelId);
-
-  const resultVideos = await fetchVideoDetails(apiKey, videoIds, stats?.subCountRaw);
-  
-  // Update channel title from video data if not set
-  if (channelTitle === "Pencarian" && resultVideos.length > 0 && channelId) {
-    channelTitle = resultVideos[0].channelTitle;
-  }
-
-  const finalResult: AnalyzedData = {
-    videos: resultVideos,
-    channelTitle,
-    channelId,
-    channelStats: stats,
-    totalFound: resultVideos.length
-  };
-
-  setCache(cacheKey, finalResult);
-  return finalResult;
-};
-
-export const fetchChannelInfo = async (apiKey: string, channelId: string): Promise<ChannelStats | undefined> => {
-  trackQuota(1);
-  const res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings&id=${channelId}&key=${apiKey}`);
-  const data = await res.json();
-  if (data.items?.[0]) {
-    const ch = data.items[0];
-    return {
-      subscriberCount: formatNumber(ch.statistics.subscriberCount),
-      subCountRaw: Number(ch.statistics.subscriberCount),
-      viewCount: formatNumber(ch.statistics.viewCount),
-      videoCount: formatNumber(ch.statistics.videoCount),
-      customUrl: ch.snippet.customUrl || "",
-      description: ch.snippet.description || "",
-      avatar: ch.snippet.thumbnails.high?.url || "",
-      banner: ch.brandingSettings?.image?.bannerExternalUrl || ""
+    if (!ids.length) throw new YouTubeApiError(`Tidak ada video untuk "${parsed.q}".`);
+    const videos = await fetchVideoDetails(apiKey, ids);
+    result = {
+      videos: markOutliers(videos),
+      channelTitle: `Hasil pencarian: ${parsed.q}`,
+      totalFound: videos.length,
+      source: 'search',
+      query: cleanQuery,
+      notice: limit > SEARCH_RESULT_CAP
+        ? `Pencarian kata kunci dibatasi ${SEARCH_RESULT_CAP} video oleh YouTube API (100 unit kuota per 50 hasil).`
+        : undefined,
+    };
+  } else {
+    // Channel: @handle, ID, URL channel, atau URL video (menganalisis channel pemilik video)
+    const channelId = await resolveChannelId(apiKey, cleanQuery);
+    const [stats, videos] = await Promise.all([
+      fetchChannelInfo(apiKey, channelId),
+      fetchChannelUploads(apiKey, channelId, limit),
+    ]);
+    if (!stats) throw new YouTubeApiError('Channel tidak ditemukan.');
+    if (!videos.length) throw new YouTubeApiError(`Channel "${stats.title}" belum memiliki video publik.`);
+    result = {
+      videos: markOutliers(videos),
+      channelTitle: stats.title || videos[0]?.channelTitle,
+      channelId,
+      channelStats: stats,
+      totalFound: videos.length,
+      source: 'channel',
+      query: cleanQuery,
+      notice: parsed.kind === 'video' ? 'Menampilkan channel pemilik video tersebut.' : undefined,
     };
   }
-  return undefined;
+
+  setCache(cacheKey, result);
+  return result;
 };

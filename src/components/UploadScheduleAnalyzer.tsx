@@ -1,13 +1,15 @@
-import React, { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useMemo, useState } from 'react';
+import { Lightbulb, TrendingUp, TrendingDown, Globe } from 'lucide-react';
 import { VideoItem } from '../types';
-import { IconHistory, IconChart } from '../constants/icons';
+import { PageHeader, StatCard, SectionCard } from './common';
+import { formatNumber } from '../lib/format';
+import { cn } from '@/lib/utils';
 
 interface UploadScheduleAnalyzerProps {
   videos: VideoItem[];
 }
 
-interface HeatmapCell {
+interface Cell {
   day: number;
   hour: number;
   count: number;
@@ -15,294 +17,236 @@ interface HeatmapCell {
   avgViews: number;
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const DAYS_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+// Senin di atas, seperti kalender Indonesia
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+const formatHour = (h: number) => `${h.toString().padStart(2, '0')}.00`;
+
+type Metric = 'views' | 'count';
 
 const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ videos }) => {
-  const { heatmapData, maxCount, bestSlots, worstSlots, stats } = useMemo(() => {
-    const grid: HeatmapCell[][] = Array(7).fill(null).map((_, day) =>
-      Array(24).fill(null).map((_, hour) => ({
-        day,
-        hour,
-        count: 0,
-        totalViews: 0,
-        avgViews: 0
-      }))
-    );
+  const [metric, setMetric] = useState<Metric>('views');
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const analysis = useMemo(() => {
+    const grid: Cell[][] = DAYS.map((_, day) => HOURS.map(hour => ({ day, hour, count: 0, totalViews: 0, avgViews: 0 })));
+    const byDay = DAYS.map(() => ({ count: 0, views: 0 }));
+    const byHour = HOURS.map(() => ({ count: 0, views: 0 }));
+    const times: number[] = [];
 
     videos.forEach(v => {
       const date = new Date(v.publishedAt);
-      const day = date.getDay();
-      const hour = date.getHours();
-      grid[day][hour].count++;
-      grid[day][hour].totalViews += v.viewCountRaw;
+      if (Number.isNaN(date.getTime())) return;
+      const d = date.getDay();
+      const h = date.getHours();
+      grid[d][h].count++;
+      grid[d][h].totalViews += v.viewCountRaw;
+      byDay[d].count++;
+      byDay[d].views += v.viewCountRaw;
+      byHour[h].count++;
+      byHour[h].views += v.viewCountRaw;
+      times.push(date.getTime());
     });
 
-    // Calculate averages
-    const allCells: HeatmapCell[] = [];
-    grid.forEach(row => {
-      row.forEach(cell => {
-        if (cell.count > 0) {
-          cell.avgViews = Math.round(cell.totalViews / cell.count);
-        }
-        allCells.push(cell);
-      });
-    });
+    const cells = grid.flat();
+    cells.forEach(c => (c.avgViews = c.count ? c.totalViews / c.count : 0));
+    const active = cells.filter(c => c.count > 0);
+    // Slot dengan ≥2 upload lebih bisa dipercaya; fallback ke semua slot bila datanya sedikit
+    const reliable = active.filter(c => c.count >= 2).length >= 3 ? active.filter(c => c.count >= 2) : active;
+    const ranked = [...reliable].sort((a, b) => b.avgViews - a.avgViews);
+    const best = ranked.slice(0, 3);
+    const worst = ranked.length > 3 ? ranked.slice(-3).reverse() : [];
 
-    const maxCount = Math.max(...allCells.map(c => c.count), 1);
-    
-    // Find best and worst slots
-    const cellsWithUploads = allCells.filter(c => c.count > 0);
-    const sortedByViews = [...cellsWithUploads].sort((a, b) => b.avgViews - a.avgViews);
-    const bestSlots = sortedByViews.slice(0, 3);
-    const worstSlots = sortedByViews.slice(-3).reverse();
+    const dayAvg = byDay.map((d, i) => ({ day: i, count: d.count, avg: d.count ? d.views / d.count : 0 }));
+    const hourAvg = byHour.map((h, i) => ({ hour: i, count: h.count, avg: h.count ? h.views / h.count : 0 }));
+    const bestDay = [...dayAvg].filter(d => d.count).sort((a, b) => b.avg - a.avg)[0];
+    const bestHour = [...hourAvg].filter(h => h.count).sort((a, b) => b.avg - a.avg)[0];
+    const busiestDay = [...dayAvg].sort((a, b) => b.count - a.count)[0];
 
-    // Stats
-    const totalUploads = videos.length;
-    const uploadsPerWeek = videos.length > 0 
-      ? (videos.length / Math.max(1, Math.ceil((Date.now() - new Date(videos[videos.length - 1].publishedAt).getTime()) / (7 * 24 * 60 * 60 * 1000))))
-      : 0;
+    const spanWeeks = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / (7 * 86400000) : 0;
 
     return {
-      heatmapData: grid,
-      maxCount,
-      bestSlots,
-      worstSlots,
-      stats: {
-        totalUploads,
-        uploadsPerWeek: uploadsPerWeek.toFixed(1)
-      }
+      grid,
+      maxCount: Math.max(1, ...cells.map(c => c.count)),
+      maxAvg: Math.max(1, ...cells.map(c => c.avgViews)),
+      best,
+      worst,
+      dayAvg,
+      hourAvg,
+      bestDay,
+      bestHour,
+      busiestDay,
+      uploadsPerWeek: spanWeeks >= 1 ? videos.length / spanWeeks : videos.length,
     };
   }, [videos]);
 
-  const getHeatColor = (count: number, avgViews: number) => {
-    if (count === 0) return 'bg-secondary';
-    const intensity = count / maxCount;
-    if (intensity > 0.7) return 'bg-primary';
-    if (intensity > 0.4) return 'bg-primary/70';
-    if (intensity > 0.2) return 'bg-primary/40';
-    return 'bg-primary/20';
+  const intensity = (c: Cell) => {
+    if (!c.count) return 0;
+    return metric === 'views' ? Math.sqrt(c.avgViews / analysis.maxAvg) : c.count / analysis.maxCount;
   };
 
-  const formatHour = (hour: number) => {
-    if (hour === 0) return '12am';
-    if (hour === 12) return '12pm';
-    return hour > 12 ? `${hour - 12}pm` : `${hour}am`;
-  };
-
-  const formatViews = (views: number) => {
-    if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
-    if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
-    return views.toString();
-  };
-
-  if (videos.length === 0) {
-    return (
-      <div className="text-center py-20 text-muted-foreground">
-        <IconHistory className="w-16 h-16 mx-auto mb-4 opacity-30" />
-        <p className="font-medium">Analyze a channel to see upload schedule patterns</p>
-      </div>
-    );
-  }
+  const maxDayAvg = Math.max(1, ...analysis.dayAvg.map(d => d.avg));
+  const maxHourAvg = Math.max(1, ...analysis.hourAvg.map(h => h.avg));
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-black text-foreground tracking-tight flex items-center gap-3">
-          <IconHistory className="w-6 h-6 text-primary" />
-          Upload Schedule Analysis
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Discover optimal posting times based on performance
-        </p>
+    <div>
+      <PageHeader
+        title="Jadwal Upload"
+        subtitle={
+          <span className="inline-flex items-center gap-1.5">
+            <Globe className="h-3.5 w-3.5" /> Waktu ditampilkan dalam zona waktu Anda ({timeZone})
+          </span>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Video dianalisis" value={videos.length.toLocaleString('id-ID')} />
+        <StatCard label="Upload / minggu" value={analysis.uploadsPerWeek.toFixed(1)} hint={analysis.busiestDay?.count ? `Paling sering: ${DAYS[analysis.busiestDay.day]}` : undefined} />
+        <StatCard label="Hari terbaik" value={analysis.bestDay ? DAYS[analysis.bestDay.day] : '-'} accent="blue" hint={analysis.bestDay ? `${formatNumber(analysis.bestDay.avg)} rata-rata views` : undefined} />
+        <StatCard label="Jam terbaik" value={analysis.bestHour ? formatHour(analysis.bestHour.hour) : '-'} accent="blue" hint={analysis.bestHour ? `${formatNumber(analysis.bestHour.avg)} rata-rata views` : undefined} />
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-card border border-border rounded-2xl p-4"
-        >
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Total Uploads</p>
-          <p className="text-2xl font-black text-foreground mt-1">{stats.totalUploads}</p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-card border border-border rounded-2xl p-4"
-        >
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Uploads/Week</p>
-          <p className="text-2xl font-black text-foreground mt-1">{stats.uploadsPerWeek}</p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-card border border-border rounded-2xl p-4"
-        >
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Best Day</p>
-          <p className="text-2xl font-black text-foreground mt-1">
-            {bestSlots[0] ? DAYS[bestSlots[0].day] : '-'}
-          </p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-card border border-border rounded-2xl p-4"
-        >
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Best Hour</p>
-          <p className="text-2xl font-black text-foreground mt-1">
-            {bestSlots[0] ? formatHour(bestSlots[0].hour) : '-'}
-          </p>
-        </motion.div>
-      </div>
-
-      {/* Heatmap */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="bg-card border border-border rounded-2xl p-6 overflow-x-auto"
+      <SectionCard
+        className="mt-6"
+        title="Peta panas upload"
+        description={metric === 'views' ? 'Warna = rata-rata views video yang diupload di slot tersebut' : 'Warna = jumlah video yang diupload'}
+        actions={
+          <div className="flex gap-2">
+            <button type="button" className="yt-chip" data-active={metric === 'views'} onClick={() => setMetric('views')}>
+              Rata-rata views
+            </button>
+            <button type="button" className="yt-chip" data-active={metric === 'count'} onClick={() => setMetric('count')}>
+              Jumlah upload
+            </button>
+          </div>
+        }
       >
-        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">
-          Upload Heatmap
-        </h3>
-        
-        <div className="min-w-[700px]">
-          {/* Hour labels */}
-          <div className="flex mb-2 ml-12">
-            {HOURS.filter((_, i) => i % 3 === 0).map(hour => (
-              <div key={hour} className="w-[36px] text-[10px] text-muted-foreground text-center">
-                {formatHour(hour)}
+        <div className="-mx-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
+          <div className="grid min-w-[640px] grid-cols-[44px_repeat(24,minmax(0,1fr))] gap-[3px]">
+            <div />
+            {HOURS.map(h => (
+              <div key={h} className="text-center text-[10px] text-muted-foreground">
+                {h % 3 === 0 ? h.toString().padStart(2, '0') : ''}
               </div>
             ))}
-          </div>
-
-          {/* Grid */}
-          {DAYS.map((day, dayIndex) => (
-            <div key={day} className="flex items-center gap-2 mb-1">
-              <span className="w-10 text-xs font-bold text-muted-foreground">{day}</span>
-              <div className="flex gap-0.5">
-                {HOURS.map(hour => {
-                  const cell = heatmapData[dayIndex][hour];
+            {DAY_ORDER.map(d => (
+              <React.Fragment key={d}>
+                <div className="flex items-center text-xs text-muted-foreground">{DAYS_SHORT[d]}</div>
+                {HOURS.map(h => {
+                  const cell = analysis.grid[d][h];
+                  const level = intensity(cell);
                   return (
-                    <motion.div
-                      key={`${dayIndex}-${hour}`}
-                      initial={{ opacity: 0, scale: 0 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.5 + (dayIndex * 24 + hour) * 0.002 }}
-                      className={`w-[12px] h-[20px] rounded-sm cursor-pointer transition-all hover:scale-125 hover:z-10 ${getHeatColor(cell.count, cell.avgViews)}`}
-                      title={`${day} ${formatHour(hour)}: ${cell.count} videos, ${formatViews(cell.avgViews)} avg views`}
+                    <div
+                      key={h}
+                      className={cn('aspect-square rounded-[3px]', cell.count ? '' : 'bg-secondary')}
+                      style={cell.count ? { backgroundColor: `hsl(var(--primary) / ${0.15 + level * 0.85})` } : undefined}
+                      title={`${DAYS[d]} ${formatHour(h)} — ${cell.count} video${cell.count ? `, rata-rata ${formatNumber(cell.avgViews)} views` : ''}`}
                     />
                   );
                 })}
-              </div>
-            </div>
-          ))}
-
-          {/* Legend */}
-          <div className="flex items-center gap-4 mt-4 pt-4 border-t border-border">
-            <span className="text-xs text-muted-foreground">Less</span>
-            <div className="flex gap-1">
-              <div className="w-4 h-4 bg-secondary rounded-sm" />
-              <div className="w-4 h-4 bg-primary/20 rounded-sm" />
-              <div className="w-4 h-4 bg-primary/40 rounded-sm" />
-              <div className="w-4 h-4 bg-primary/70 rounded-sm" />
-              <div className="w-4 h-4 bg-primary rounded-sm" />
-            </div>
-            <span className="text-xs text-muted-foreground">More</span>
+              </React.Fragment>
+            ))}
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Rendah</span>
+            {[0.15, 0.35, 0.55, 0.75, 1].map(o => (
+              <span key={o} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
+            ))}
+            <span>Tinggi</span>
           </div>
         </div>
-      </motion.div>
+      </SectionCard>
 
-      {/* Best & Worst Times */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Best Times */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="bg-card border border-border rounded-2xl p-6"
-        >
-          <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <span className="text-emerald-500">✓</span> Best Performing Times
-          </h3>
-          <div className="space-y-3">
-            {bestSlots.map((slot, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 bg-emerald-500 text-white rounded-lg flex items-center justify-center font-bold text-sm">
-                    {i + 1}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <SectionCard title="Rata-rata views per hari">
+          <ul className="space-y-2.5">
+            {DAY_ORDER.map(d => {
+              const row = analysis.dayAvg[d];
+              return (
+                <li key={d} className="grid grid-cols-[64px_1fr_72px] items-center gap-3 text-sm">
+                  <span className="text-muted-foreground">{DAYS[d]}</span>
+                  <span className="h-2 overflow-hidden rounded-full bg-secondary">
+                    <span className={cn('block h-full rounded-full', analysis.bestDay?.day === d ? 'bg-youtube-red' : 'bg-primary')} style={{ width: `${(row.avg / maxDayAvg) * 100}%` }} />
                   </span>
-                  <div>
-                    <p className="font-bold text-foreground">{DAYS[slot.day]} at {formatHour(slot.hour)}</p>
-                    <p className="text-xs text-muted-foreground">{slot.count} uploads</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-emerald-600 dark:text-emerald-400">{formatViews(slot.avgViews)}</p>
-                  <p className="text-[10px] text-muted-foreground">avg views</p>
-                </div>
-              </div>
+                  <span className="text-right tabular-nums text-foreground">{row.count ? formatNumber(row.avg) : '-'}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </SectionCard>
+
+        <SectionCard title="Rata-rata views per jam">
+          <div className="flex h-40 items-end gap-[3px]">
+            {analysis.hourAvg.map(h => (
+              <div
+                key={h.hour}
+                className={cn('flex-1 rounded-t-sm', h.count ? (analysis.bestHour?.hour === h.hour ? 'bg-youtube-red' : 'bg-primary') : 'bg-secondary')}
+                style={{ height: `${h.count ? Math.max(4, (h.avg / maxHourAvg) * 100) : 4}%` }}
+                title={`${formatHour(h.hour)} — ${h.count} video, ${formatNumber(h.avg)} rata-rata views`}
+              />
             ))}
           </div>
-        </motion.div>
-
-        {/* Worst Times */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-card border border-border rounded-2xl p-6"
-        >
-          <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <span className="text-orange-500">!</span> Lower Performing Times
-          </h3>
-          <div className="space-y-3">
-            {worstSlots.map((slot, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 bg-orange-500 text-white rounded-lg flex items-center justify-center font-bold text-sm">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="font-bold text-foreground">{DAYS[slot.day]} at {formatHour(slot.hour)}</p>
-                    <p className="text-xs text-muted-foreground">{slot.count} uploads</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-orange-600 dark:text-orange-400">{formatViews(slot.avgViews)}</p>
-                  <p className="text-[10px] text-muted-foreground">avg views</p>
-                </div>
-              </div>
-            ))}
+          <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
+            <span>00.00</span>
+            <span>06.00</span>
+            <span>12.00</span>
+            <span>18.00</span>
+            <span>23.00</span>
           </div>
-        </motion.div>
+        </SectionCard>
       </div>
 
-      {/* Recommendation */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.8 }}
-        className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-2xl p-6"
-      >
-        <h3 className="text-sm font-bold text-primary uppercase tracking-widest mb-2">
-          💡 Recommendation
-        </h3>
-        <p className="text-foreground">
-          Based on your channel's performance data, the optimal upload time is{' '}
-          <strong>{bestSlots[0] ? `${DAYS[bestSlots[0].day]} at ${formatHour(bestSlots[0].hour)}` : 'not enough data'}</strong>.
-          Videos uploaded during this time window receive{' '}
-          <strong>{bestSlots[0] ? formatViews(bestSlots[0].avgViews) : '0'}</strong> average views.
-        </p>
-      </motion.div>
+      <div className="mt-6 grid gap-6 md:grid-cols-2">
+        <SectionCard title="Slot dengan performa terbaik">
+          <SlotList slots={analysis.best} tone="good" />
+        </SectionCard>
+        <SectionCard title="Slot dengan performa terendah">
+          {analysis.worst.length ? <SlotList slots={analysis.worst} tone="bad" /> : <p className="text-sm text-muted-foreground">Data belum cukup.</p>}
+        </SectionCard>
+      </div>
+
+      {analysis.best[0] && (
+        <div className="mt-6 flex items-start gap-4 rounded-xl bg-primary/10 p-4 sm:p-5">
+          <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <p className="text-sm leading-6 text-foreground">
+            Video yang diupload hari <b>{DAYS[analysis.best[0].day]}</b> sekitar pukul <b>{formatHour(analysis.best[0].hour)}</b> mendapat rata-rata{' '}
+            <b>{formatNumber(analysis.best[0].avgViews)} views</b>. Uji jadwal ini beberapa kali sebelum menjadikannya patokan — performa juga
+            dipengaruhi topik dan umur video.
+          </p>
+        </div>
+      )}
     </div>
   );
 };
+
+const SlotList: React.FC<{ slots: Cell[]; tone: 'good' | 'bad' }> = ({ slots, tone }) => (
+  <ul className="divide-y divide-border">
+    {slots.map((s, i) => (
+      <li key={`${s.day}-${s.hour}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+        <span
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium',
+            tone === 'good' ? 'bg-success/15 text-success' : 'bg-destructive/10 text-destructive'
+          )}
+        >
+          {tone === 'good' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            {i + 1}. {DAYS[s.day]}, {formatHour(s.hour)}
+          </p>
+          <p className="text-xs text-muted-foreground">{s.count} upload</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-medium tabular-nums text-foreground">{formatNumber(s.avgViews)}</p>
+          <p className="text-[11px] text-muted-foreground">rata-rata views</p>
+        </div>
+      </li>
+    ))}
+  </ul>
+);
 
 export default UploadScheduleAnalyzer;

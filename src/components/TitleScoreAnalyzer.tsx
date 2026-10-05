@@ -1,420 +1,279 @@
-import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Play, Lightbulb, Search } from 'lucide-react';
 import { VideoItem } from '../types';
-import { IconSparkles, IconChart, IconImage } from '../constants/icons';
-import { 
-  calculateAllVideoScores, 
-  getAverageScores, 
-  getGradeDistribution,
-  VideoWithScores,
-  PerformanceScore
-} from '../services/performanceScoreService';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { calculateAllVideoScores, getGradeDistribution, VideoWithScores, PerformanceScore } from '../services/performanceScoreService';
+import { analyzeTitleScore } from '../services/titleScoreService';
+import { PageHeader, StatCard, SectionCard, StudioTabs } from './common';
+import { cn } from '@/lib/utils';
 
 interface TitleScoreAnalyzerProps {
   videos: VideoItem[];
+  onPreview?: (video: VideoItem) => void;
 }
 
-const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos }) => {
-  const [selectedVideo, setSelectedVideo] = useState<VideoWithScores | null>(null);
-  const [activeTab, setActiveTab] = useState<'title' | 'thumbnail'>('title');
+type Tab = 'title' | 'thumbnail';
+type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
 
-  // Calculate all scores
-  const scoredVideos = useMemo(() => {
-    return calculateAllVideoScores(videos);
-  }, [videos]);
+const GRADES: Grade[] = ['A', 'B', 'C', 'D', 'F'];
 
-  // Sort by current tab's score
-  const sortedVideos = useMemo(() => {
-    return [...scoredVideos].sort((a, b) => {
-      if (activeTab === 'title') {
-        return b.titleScore.totalScore - a.titleScore.totalScore;
-      }
-      return b.thumbnailScore.totalScore - a.thumbnailScore.totalScore;
+const GRADE_STYLE: Record<Grade, { text: string; bg: string; bar: string }> = {
+  A: { text: 'text-[#0b8043] dark:text-[#4ade80]', bg: 'bg-[#0b8043]/10 dark:bg-[#4ade80]/15', bar: 'bg-[#0b8043] dark:bg-[#4ade80]' },
+  B: { text: 'text-primary', bg: 'bg-primary/10', bar: 'bg-primary' },
+  C: { text: 'text-[#b06000] dark:text-[#fbbf24]', bg: 'bg-[#f9ab00]/15', bar: 'bg-[#f9ab00]' },
+  D: { text: 'text-[#e8710a] dark:text-[#fb923c]', bg: 'bg-[#e8710a]/10', bar: 'bg-[#e8710a]' },
+  F: { text: 'text-destructive', bg: 'bg-destructive/10', bar: 'bg-destructive' },
+};
+
+const BREAKDOWN_LABELS: Record<string, string> = {
+  views: 'Views',
+  likes: 'Likes',
+  engagement: 'Engagement',
+  text: 'Kualitas teks judul',
+  recency: 'Kecepatan views',
+};
+
+const PAGE = 100;
+
+const GradeBadge: React.FC<{ grade: Grade; size?: 'sm' | 'lg' }> = ({ grade, size = 'sm' }) => (
+  <span
+    className={cn(
+      'inline-flex shrink-0 items-center justify-center rounded-lg font-bold',
+      GRADE_STYLE[grade].text,
+      GRADE_STYLE[grade].bg,
+      size === 'lg' ? 'h-14 w-14 text-3xl' : 'h-9 w-9 text-base'
+    )}
+  >
+    {grade}
+  </span>
+);
+
+const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPreview }) => {
+  const [tab, setTab] = useState<Tab>('title');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [gradeFilter, setGradeFilter] = useState<Grade | 'all'>('all');
+  const [search, setSearch] = useState('');
+  const [limit, setLimit] = useState(PAGE);
+
+  const scored = useMemo(() => calculateAllVideoScores(videos), [videos]);
+  const scoreOf = (v: VideoWithScores): PerformanceScore => (tab === 'title' ? v.titleScore : v.thumbnailScore);
+
+  const sorted = useMemo(
+    () => [...scored].sort((a, b) => (tab === 'title' ? b.titleScore.totalScore - a.titleScore.totalScore : b.thumbnailScore.totalScore - a.thumbnailScore.totalScore)),
+    [scored, tab]
+  );
+
+  const avgScore = useMemo(
+    () => (scored.length ? Math.round(scored.reduce((s, v) => s + (tab === 'title' ? v.titleScore.totalScore : v.thumbnailScore.totalScore), 0) / scored.length) : 0),
+    [scored, tab]
+  );
+
+  const distribution = useMemo(
+    () => getGradeDistribution(scored.map(v => (tab === 'title' ? v.titleScore : v.thumbnailScore))) as Record<Grade, number>,
+    [scored, tab]
+  );
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return sorted.filter(v => {
+      const grade = (tab === 'title' ? v.titleScore : v.thumbnailScore).grade;
+      return (gradeFilter === 'all' || grade === gradeFilter) && (!q || v.title.toLowerCase().includes(q));
     });
-  }, [scoredVideos, activeTab]);
+  }, [sorted, gradeFilter, search, tab]);
 
-  // Overall stats
-  const { avgTitleScore, avgThumbnailScore } = useMemo(() => {
-    return getAverageScores(videos);
-  }, [videos]);
+  useEffect(() => setLimit(PAGE), [tab, gradeFilter, search]);
 
-  const titleDistribution = useMemo(() => {
-    return getGradeDistribution(scoredVideos.map(v => v.titleScore));
-  }, [scoredVideos]);
-
-  const thumbnailDistribution = useMemo(() => {
-    return getGradeDistribution(scoredVideos.map(v => v.thumbnailScore));
-  }, [scoredVideos]);
-
-  const handleSelectVideo = (video: VideoWithScores) => {
-    setSelectedVideo(video);
-  };
-
-  const getGradeColor = (grade: string) => {
-    switch (grade) {
-      case 'A': return 'text-emerald-500 bg-emerald-100 dark:bg-emerald-900/30';
-      case 'B': return 'text-blue-500 bg-blue-100 dark:bg-blue-900/30';
-      case 'C': return 'text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30';
-      case 'D': return 'text-orange-500 bg-orange-100 dark:bg-orange-900/30';
-      default: return 'text-red-500 bg-red-100 dark:bg-red-900/30';
-    }
-  };
-
-  const getScoreBarColor = (score: number, max: number) => {
-    const percentage = max > 0 ? (score / max) * 100 : 0;
-    if (percentage >= 80) return 'bg-emerald-500';
-    if (percentage >= 60) return 'bg-blue-500';
-    if (percentage >= 40) return 'bg-yellow-500';
-    return 'bg-orange-500';
-  };
-
-  const getCurrentScore = (video: VideoWithScores): PerformanceScore => {
-    return activeTab === 'title' ? video.titleScore : video.thumbnailScore;
-  };
-
-  if (videos.length === 0) {
-    return (
-      <div className="text-center py-20 text-muted-foreground">
-        <IconSparkles className="w-16 h-16 mx-auto mb-4 opacity-30" />
-        <p className="font-medium">Analyze a channel to score video titles & thumbnails</p>
-      </div>
-    );
-  }
+  const selected = scored.find(v => v.id === selectedId) ?? sorted[0] ?? null;
+  const selectedScore = selected ? scoreOf(selected) : null;
+  const textAnalysis = useMemo(() => (selected ? analyzeTitleScore(selected.title) : null), [selected]);
+  const best = sorted[0];
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-black text-foreground tracking-tight flex items-center gap-3">
-          <IconSparkles className="w-6 h-6 text-primary" />
-          Title & Thumbnail Performance
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Scores based on actual video performance (views, likes, engagement)
-        </p>
+    <div>
+      <PageHeader title="Skor Judul & Thumbnail" subtitle="Skor 0–100 dihitung dari performa nyata video dibandingkan video lain dalam analisis ini." />
+      <StudioTabs<Tab>
+        tabs={[
+          { id: 'title', label: 'Skor judul' },
+          { id: 'thumbnail', label: 'Skor thumbnail' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label={`Rata-rata skor ${tab === 'title' ? 'judul' : 'thumbnail'}`} value={`${avgScore}`} hint="dari 100" />
+        <div className="yt-card col-span-2 p-4 sm:p-5 lg:col-span-1">
+          <p className="text-sm text-muted-foreground">Distribusi nilai</p>
+          <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-secondary">
+            {GRADES.map(g =>
+              distribution[g] ? (
+                <div key={g} className={GRADE_STYLE[g].bar} style={{ width: `${(distribution[g] / scored.length) * 100}%` }} title={`${g}: ${distribution[g]}`} />
+              ) : null
+            )}
+          </div>
+          <div className="mt-2 flex justify-between text-xs">
+            {GRADES.map(g => (
+              <span key={g} className={GRADE_STYLE[g].text}>
+                <b>{g}</b> <span className="text-muted-foreground">{distribution[g]}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="yt-card p-4 sm:p-5">
+          <p className="text-sm text-muted-foreground">Bobot penilaian</p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {(tab === 'title'
+              ? [['Views', '35%'], ['Likes', '25%'], ['Engagement', '20%'], ['Teks judul', '20%']]
+              : [['Views (proksi CTR)', '40%'], ['Engagement', '30%'], ['Kecepatan views', '30%']]
+            ).map(([k, v]) => (
+              <li key={k} className="flex justify-between">
+                <span className="text-muted-foreground">{k}</span>
+                <span className="font-medium text-foreground">{v}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="yt-card p-4 sm:p-5">
+          <p className="text-sm text-muted-foreground">Terbaik</p>
+          {best && (
+            <button type="button" className="mt-2 flex w-full items-center gap-3 text-left" onClick={() => setSelectedId(best.id)}>
+              <img src={best.thumbnail} alt="" className="aspect-video w-20 shrink-0 rounded-lg object-cover" />
+              <span className="line-clamp-2 text-sm font-medium text-foreground">{best.title}</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'title' | 'thumbnail')} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="title" className="flex items-center gap-2">
-            <IconChart className="w-4 h-4" />
-            Title Score
-          </TabsTrigger>
-          <TabsTrigger value="thumbnail" className="flex items-center gap-2">
-            <IconImage className="w-4 h-4" />
-            Thumbnail Score
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="title" className="mt-6">
-          {/* Title Score Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Avg Title Score</p>
-              <p className="text-3xl font-black text-foreground mt-1">{avgTitleScore}</p>
-              <p className="text-xs text-muted-foreground">out of 100</p>
-            </motion.div>
-            
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Grade Distribution</p>
-              <div className="flex gap-1 mt-2">
-                {Object.entries(titleDistribution).map(([grade, count]) => (
-                  <div key={grade} className="flex-1 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(grade)}`}>
-                      {grade}
-                    </span>
-                    <p className="text-sm font-bold text-foreground mt-1">{count}</p>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Scoring Formula</p>
-              <div className="mt-2 space-y-1 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Views</span><span className="font-bold text-foreground">35%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Likes</span><span className="font-bold text-foreground">25%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">ER%</span><span className="font-bold text-foreground">20%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Text</span><span className="font-bold text-foreground">20%</span></div>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Best Title</p>
-              {sortedVideos[0] && (
-                <>
-                  <p className="text-sm font-bold text-foreground mt-1 line-clamp-2">{sortedVideos[0].title}</p>
-                  <p className="text-xs text-primary mt-1">Score: {sortedVideos[0].titleScore.totalScore}/100</p>
-                </>
-              )}
-            </motion.div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <SectionCard title={`Peringkat ${tab === 'title' ? 'judul' : 'thumbnail'}`} description={`${list.length} video`}>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari judul…" className="yt-input pl-9" />
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+              {(['all', ...GRADES] as const).map(g => (
+                <button key={g} type="button" className="yt-chip h-8 px-2.5" data-active={gradeFilter === g} onClick={() => setGradeFilter(g)}>
+                  {g === 'all' ? 'Semua' : g}
+                </button>
+              ))}
+            </div>
           </div>
-        </TabsContent>
 
-        <TabsContent value="thumbnail" className="mt-6">
-          {/* Thumbnail Score Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Avg Thumbnail Score</p>
-              <p className="text-3xl font-black text-foreground mt-1">{avgThumbnailScore}</p>
-              <p className="text-xs text-muted-foreground">out of 100</p>
-            </motion.div>
-            
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Grade Distribution</p>
-              <div className="flex gap-1 mt-2">
-                {Object.entries(thumbnailDistribution).map(([grade, count]) => (
-                  <div key={grade} className="flex-1 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(grade)}`}>
-                      {grade}
-                    </span>
-                    <p className="text-sm font-bold text-foreground mt-1">{count}</p>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Scoring Formula</p>
-              <div className="mt-2 space-y-1 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Views (CTR)</span><span className="font-bold text-foreground">40%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Engagement</span><span className="font-bold text-foreground">30%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Recency</span><span className="font-bold text-foreground">30%</span></div>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-card border border-border rounded-2xl p-4"
-            >
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Best Thumbnail</p>
-              {sortedVideos[0] && (
-                <div className="mt-2">
-                  <img 
-                    src={sortedVideos[0].thumbnail} 
-                    alt={sortedVideos[0].title}
-                    className="w-full aspect-video object-cover rounded-lg"
-                  />
-                  <p className="text-xs text-primary mt-1">Score: {sortedVideos[0].thumbnailScore.totalScore}/100</p>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Video List */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-card border border-border rounded-2xl p-6"
-        >
-          <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">
-            {activeTab === 'title' ? 'Titles' : 'Thumbnails'} Ranked by Performance
-          </h3>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-            {sortedVideos.map((video, i) => {
-              const score = getCurrentScore(video);
+          <ul className="-mx-2 max-h-[640px] overflow-y-auto">
+            {list.slice(0, limit).map(v => {
+              const s = scoreOf(v);
+              const rank = sorted.indexOf(v) + 1;
               return (
-                <motion.button
-                  key={video.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 + i * 0.02 }}
-                  onClick={() => handleSelectVideo(video)}
-                  className={`w-full text-left p-3 rounded-xl transition-all ${
-                    selectedVideo?.id === video.id
-                      ? 'bg-primary/10 border-2 border-primary'
-                      : 'bg-secondary/50 hover:bg-secondary border-2 border-transparent'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {activeTab === 'thumbnail' && (
-                      <img 
-                        src={video.thumbnail} 
-                        alt="" 
-                        className="w-16 h-9 object-cover rounded-lg shrink-0"
-                      />
+                <li key={v.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(v.id)}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors',
+                      selected?.id === v.id ? 'bg-primary/10' : 'hover:bg-secondary'
                     )}
-                    <span className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center font-black text-lg ${getGradeColor(score.grade)}`}>
-                      {score.grade}
+                  >
+                    <span className="w-7 shrink-0 text-right text-xs text-muted-foreground">{rank}</span>
+                    {tab === 'thumbnail' && <img src={v.thumbnail} alt="" loading="lazy" className="aspect-video w-20 shrink-0 rounded-md object-cover" />}
+                    <GradeBadge grade={s.grade as Grade} />
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 text-sm font-medium text-foreground">{v.title}</span>
+                      <span className="mt-1 flex items-center gap-2">
+                        <span className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+                          <span className={cn('block h-full rounded-full', GRADE_STYLE[s.grade as Grade].bar)} style={{ width: `${s.totalScore}%` }} />
+                        </span>
+                        <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{s.totalScore}/100</span>
+                      </span>
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-foreground text-sm line-clamp-2">{video.title}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-muted-foreground">{score.totalScore}/100</span>
-                        <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${getScoreBarColor(score.totalScore, 100)}`}
-                            style={{ width: `${score.totalScore}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
-                        <span>{video.views}</span>
-                        <span>•</span>
-                        <span>{video.engagementRate}% ER</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.button>
+                  </button>
+                </li>
               );
             })}
-          </div>
-        </motion.div>
+          </ul>
+          {list.length > limit && (
+            <button type="button" className="yt-pill mt-3 w-full" onClick={() => setLimit(l => l + PAGE)}>
+              Tampilkan {Math.min(PAGE, list.length - limit)} lagi
+            </button>
+          )}
+        </SectionCard>
 
-        {/* Score Detail */}
-        <AnimatePresence mode="wait">
-          {selectedVideo ? (
-            <motion.div
-              key={selectedVideo.id + activeTab}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="bg-card border border-border rounded-2xl p-6"
-            >
-              <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">
-                Performance Breakdown
-              </h3>
+        {selected && selectedScore && (
+          <div className="lg:sticky lg:top-20 lg:self-start">
+            <SectionCard title="Rincian skor">
+              <div className="relative overflow-hidden rounded-xl bg-secondary">
+                <img src={selected.thumbnail} alt="" className="aspect-video w-full object-cover" />
+                {onPreview && (
+                  <button
+                    type="button"
+                    onClick={() => onPreview(selected)}
+                    className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition hover:bg-black/30 hover:opacity-100"
+                    aria-label="Putar pratinjau"
+                  >
+                    <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/70 text-white">
+                      <Play className="h-7 w-7 fill-current" />
+                    </span>
+                  </button>
+                )}
+              </div>
+              <p className="mt-3 text-base font-medium leading-6 text-foreground">{selected.title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selected.views} x ditonton • {selected.likes} likes • ER {selected.engagementRate}%
+              </p>
 
-              {/* Thumbnail Preview for Thumbnail tab */}
-              {activeTab === 'thumbnail' && (
-                <div className="mb-4">
-                  <img 
-                    src={selectedVideo.thumbnail} 
-                    alt={selectedVideo.title}
-                    className="w-full aspect-video object-cover rounded-xl"
-                  />
+              <div className="mt-4 flex items-center gap-4">
+                <GradeBadge grade={selectedScore.grade as Grade} size="lg" />
+                <div>
+                  <p className="text-3xl font-medium text-foreground">
+                    {selectedScore.totalScore}
+                    <span className="text-base text-muted-foreground">/100</span>
+                  </p>
+                  <p className={cn('text-sm', selectedScore.totalScore >= avgScore ? 'text-success' : 'text-destructive')}>
+                    {selectedScore.totalScore >= avgScore ? '+' : ''}
+                    {selectedScore.totalScore - avgScore} dari rata-rata ({avgScore})
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                {Object.entries(selectedScore.breakdown)
+                  .filter(([, d]) => d && d.max > 0)
+                  .map(([key, d]) => {
+                    const pct = (d!.score / d!.max) * 100;
+                    return (
+                      <div key={key}>
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium text-foreground">{BREAKDOWN_LABELS[key] ?? key}</span>
+                          <span className="tabular-nums text-muted-foreground">
+                            {d!.score}/{d!.max}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
+                          <div
+                            className={cn('h-full rounded-full', pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-primary' : pct >= 30 ? 'bg-warning' : 'bg-destructive')}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{d!.label}</p>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {tab === 'title' && textAnalysis && textAnalysis.suggestions.length > 0 && (
+                <div className="mt-6 rounded-xl bg-secondary p-4">
+                  <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Lightbulb className="h-4 w-4 text-warning" /> Saran perbaikan judul
+                  </p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                    {textAnalysis.suggestions.map(s => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
-
-              {/* Title/Video Preview */}
-              <div className="p-4 bg-secondary/50 rounded-xl mb-6">
-                <p className="text-sm font-bold text-foreground">{selectedVideo.title}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className={`px-3 py-1 rounded-full text-lg font-black ${getGradeColor(getCurrentScore(selectedVideo).grade)}`}>
-                    {getCurrentScore(selectedVideo).grade}
-                  </span>
-                  <span className="text-2xl font-black text-foreground">{getCurrentScore(selectedVideo).totalScore}/100</span>
-                </div>
-                <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                  <span>{selectedVideo.views}</span>
-                  <span>•</span>
-                  <span>{selectedVideo.likes} likes</span>
-                  <span>•</span>
-                  <span>{selectedVideo.engagementRate}% ER</span>
-                </div>
-              </div>
-
-              {/* Breakdown Bars */}
-              <div className="space-y-4">
-                {Object.entries(getCurrentScore(selectedVideo).breakdown)
-                  .filter(([_, data]) => data.max > 0)
-                  .map(([key, data]) => (
-                  <div key={key}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-bold text-foreground capitalize">{key}</span>
-                      <span className="text-muted-foreground">{data.score}/{data.max}</span>
-                    </div>
-                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: data.max > 0 ? `${(data.score / data.max) * 100}%` : '0%' }}
-                        transition={{ duration: 0.5, delay: 0.2 }}
-                        className={getScoreBarColor(data.score, data.max)}
-                      />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-1">{data.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Comparison with average */}
-              <div className="mt-6 pt-4 border-t border-border">
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
-                  📊 Comparison with Channel Average
-                </h4>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl">
-                    <span className="text-sm text-foreground">This {activeTab === 'title' ? 'Title' : 'Thumbnail'}</span>
-                    <span className="text-sm font-bold text-foreground">{getCurrentScore(selectedVideo).totalScore}/100</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl">
-                    <span className="text-sm text-foreground">Channel Average</span>
-                    <span className="text-sm font-bold text-muted-foreground">
-                      {activeTab === 'title' ? avgTitleScore : avgThumbnailScore}/100
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-xl" style={{
-                    backgroundColor: getCurrentScore(selectedVideo).totalScore > (activeTab === 'title' ? avgTitleScore : avgThumbnailScore) 
-                      ? 'rgb(16 185 129 / 0.1)' 
-                      : 'rgb(239 68 68 / 0.1)'
-                  }}>
-                    <span className="text-sm text-foreground">Difference</span>
-                    <span className={`text-sm font-bold ${
-                      getCurrentScore(selectedVideo).totalScore > (activeTab === 'title' ? avgTitleScore : avgThumbnailScore)
-                        ? 'text-emerald-500'
-                        : 'text-red-500'
-                    }`}>
-                      {getCurrentScore(selectedVideo).totalScore > (activeTab === 'title' ? avgTitleScore : avgThumbnailScore) ? '+' : ''}
-                      {getCurrentScore(selectedVideo).totalScore - (activeTab === 'title' ? avgTitleScore : avgThumbnailScore)} points
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="bg-card border border-border rounded-2xl p-6 flex items-center justify-center"
-            >
-              <div className="text-center text-muted-foreground">
-                <IconChart className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">Select a {activeTab === 'title' ? 'title' : 'thumbnail'} to see detailed analysis</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </SectionCard>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,134 +1,111 @@
 import React from 'react';
-import { IconHome, IconSubs, IconUser, IconHistory, IconTrending, IconChart, IconSparkles, IconDownload } from '../constants/icons';
 import { AnalysisMode } from '../types';
+import { NAV_SECTIONS, MINI_NAV_MODES, ALL_NAV_ITEMS, NavItem } from '../config/navigation';
+import { cn } from '@/lib/utils';
 
-interface RowProps {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
+interface NavListProps {
+  currentMode: AnalysisMode;
+  onNavigate: (mode: AnalysisMode) => void;
+  savedCount?: number;
+  hasData?: boolean;
 }
 
-const Row: React.FC<RowProps> = ({ icon, label, active, onClick }) => (
-  <div
-    onClick={onClick}
-    className={`flex items-center gap-4 px-4 py-2.5 rounded-xl cursor-pointer transition-all duration-300 group ${
-      active 
-        ? 'bg-primary/10 text-primary font-bold' 
-        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-    }`}
-  >
-    <div className={`w-5 h-5 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${
-      active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
-    }`}>
-      {icon}
+const NavRow: React.FC<{ item: NavItem; active: boolean; onClick: () => void; badge?: React.ReactNode }> = ({
+  item,
+  active,
+  onClick,
+  badge,
+}) => {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex h-10 w-full items-center gap-6 rounded-lg px-3 text-left text-sm transition-colors',
+        active ? 'bg-secondary font-medium text-foreground hover:bg-accent' : 'text-foreground hover:bg-secondary'
+      )}
+    >
+      <Icon className="h-6 w-6 shrink-0" strokeWidth={active ? 2.25 : 1.75} />
+      <span className="flex-1 truncate">{item.label}</span>
+      {badge}
+    </button>
+  );
+};
+
+/** Daftar navigasi lengkap — dipakai sidebar desktop & drawer mobile. */
+export const NavList: React.FC<NavListProps> = ({ currentMode, onNavigate, savedCount = 0, hasData }) => (
+  <nav className="flex flex-col pb-4" aria-label="Navigasi utama">
+    {NAV_SECTIONS.map((section, idx) => (
+      <div key={section.title ?? idx} className={cn('px-3 py-3', idx > 0 && 'border-t border-border')}>
+        {section.title && (
+          <h3 className="px-3 pb-1 pt-1 text-base font-bold text-foreground">{section.title}</h3>
+        )}
+        {section.items.map(item => (
+          <NavRow
+            key={item.mode}
+            item={item}
+            active={currentMode === item.mode}
+            onClick={() => onNavigate(item.mode)}
+            badge={
+              item.mode === 'saved' && savedCount > 0 ? (
+                <span className="text-xs text-muted-foreground">{savedCount}</span>
+              ) : item.needsData && !hasData ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" title="Perlu analisis channel dulu" />
+              ) : null
+            }
+          />
+        ))}
+      </div>
+    ))}
+    <div className="border-t border-border px-6 pt-4 text-xs leading-5 text-muted-foreground">
+      <p>Data dari YouTube Data API v3.</p>
+      <p>Kuota direset setiap tengah malam (waktu Pasifik).</p>
+      <p className="mt-3 text-[11px]">© {new Date().getFullYear()} YT Analyzer Pro</p>
     </div>
-    <span className="text-[13px] font-medium tracking-tight">
-      {label}
-    </span>
-  </div>
+  </nav>
 );
 
-interface SidebarProps {
-  currentMode: AnalysisMode;
-  onModeChange: (mode: AnalysisMode) => void;
-  onFetchTrending: () => void;
+interface SidebarProps extends NavListProps {
+  expanded: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, onFetchTrending }) => {
+const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, savedCount, hasData }) => {
+  if (expanded) {
+    return (
+      <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto bg-background md:block">
+        <NavList currentMode={currentMode} onNavigate={onNavigate} savedCount={savedCount} hasData={hasData} />
+      </aside>
+    );
+  }
+
+  const miniItems = MINI_NAV_MODES.map(m => ALL_NAV_ITEMS.find(i => i.mode === m)!).filter(Boolean);
   return (
-    <div className="hidden md:flex flex-col w-[240px] h-[calc(100vh-56px)] overflow-y-auto fixed top-14 left-0 px-4 bg-background border-r border-border py-6 transition-colors duration-500 z-40">
-      <div className="space-y-1">
-        <Row 
-          icon={<IconHome filled={currentMode === 'dashboard'} />} 
-          label="Dashboard" 
-          active={currentMode === 'dashboard'} 
-          onClick={() => onModeChange('dashboard')} 
-        />
-        <Row 
-          icon={<IconTrending />} 
-          label="Trending Topics" 
-          active={currentMode === 'trending'} 
-          onClick={onFetchTrending} 
-        />
-      </div>
-
-      <div className="my-6 border-t border-border/50" />
-
-      <div className="space-y-1">
-        <div className="px-4 mb-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-          Analysis
-        </div>
-        <Row 
-          icon={<IconChart />} 
-          label="Channel Stats" 
-          active={currentMode === 'insights'} 
-          onClick={() => onModeChange('insights')} 
-        />
-        <Row 
-          icon={<IconSubs />} 
-          label="Benchmark" 
-          active={currentMode === 'benchmark'} 
-          onClick={() => onModeChange('benchmark')} 
-        />
-        <Row 
-          icon={<IconSparkles />} 
-          label="Content Gap" 
-          active={currentMode === 'content_gap'} 
-          onClick={() => onModeChange('content_gap')} 
-        />
-        <Row 
-          icon={<IconHistory />} 
-          label="Upload Schedule" 
-          active={currentMode === 'schedule'} 
-          onClick={() => onModeChange('schedule')} 
-        />
-        <Row 
-          icon={<IconChart />} 
-          label="Title & Thumbnail Score" 
-          active={currentMode === 'title_score'} 
-          onClick={() => onModeChange('title_score')} 
-        />
-      </div>
-
-      <div className="my-6 border-t border-border/50" />
-
-      <div className="space-y-1">
-        <div className="px-4 mb-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-          Tools
-        </div>
-        <Row 
-          icon={<IconDownload />} 
-          label="Video Downloader" 
-          active={currentMode === 'downloader'} 
-          onClick={() => onModeChange('downloader')} 
-        />
-      </div>
-
-      <div className="my-6 border-t border-border/50" />
-
-      <div className="space-y-1">
-        <div className="px-4 mb-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-          Library
-        </div>
-        <Row 
-          icon={<IconUser />} 
-          label="Saved Content" 
-          active={currentMode === 'saved'} 
-          onClick={() => onModeChange('saved')} 
-        />
-        <Row 
-          icon={<IconHistory />} 
-          label="Search History" 
-          active={currentMode === 'history'} 
-          onClick={() => onModeChange('history')} 
-        />
-      </div>
-
-      <div className="mt-auto pt-8 px-4 text-[10px] text-muted-foreground font-bold uppercase tracking-widest leading-loose">
-        <p>© 2024 YT ANALYZER PRO</p>
-      </div>
-    </div>
+    <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto bg-background px-1 pt-1 no-scrollbar md:block">
+      {miniItems.map(item => {
+        const Icon = item.icon;
+        const active = currentMode === item.mode;
+        return (
+          <button
+            key={item.mode}
+            type="button"
+            onClick={() => onNavigate(item.mode)}
+            aria-current={active ? 'page' : undefined}
+            title={item.label}
+            className={cn(
+              'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3.5 pt-4 transition-colors hover:bg-secondary',
+              active && 'bg-secondary/60'
+            )}
+          >
+            <Icon className="h-6 w-6" strokeWidth={active ? 2.25 : 1.75} />
+            <span className={cn('max-w-full truncate px-1 text-[10px] leading-none', active && 'font-medium')}>
+              {item.shortLabel}
+            </span>
+          </button>
+        );
+      })}
+    </aside>
   );
 };
 

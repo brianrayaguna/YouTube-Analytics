@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { IconX, IconDownload } from '../constants/icons';
+import { X, ExternalLink } from 'lucide-react';
+import { DOWNLOADER_SERVICES, openDownloader } from '../constants/downloaders';
 
 interface VideoDownloaderProps {
   videoUrl: string;
@@ -9,68 +10,19 @@ interface VideoDownloaderProps {
   onClose: () => void;
 }
 
-// External downloader services - all open in new tabs
-const DOWNLOADER_SERVICES = [
-  {
-    id: 'cobalt',
-    name: 'Cobalt Tools',
-    description: 'Clean, no ads, various formats',
-    emoji: '🌐',
-    recommended: true,
-    getUrl: (videoUrl: string) => `https://cobalt.tools/?url=${encodeURIComponent(videoUrl)}`,
-  },
-  {
-    id: 'y2mate',
-    name: 'Y2Mate',
-    description: 'Popular, many quality options',
-    emoji: '🎬',
-    recommended: false,
-    getUrl: (videoUrl: string) => {
-      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
-      return `https://www.y2mate.com/youtube/${videoId}`;
-    },
-  },
-  {
-    id: 'savefrom',
-    name: 'SaveFrom.net',
-    description: 'Multiple formats available',
-    emoji: '📥',
-    recommended: false,
-    getUrl: (videoUrl: string) => `https://en.savefrom.net/1-${encodeURIComponent(videoUrl)}`,
-  },
-  {
-    id: 'ssyoutube',
-    name: 'SSYouTube',
-    description: 'Fast & simple downloads',
-    emoji: '⚡',
-    recommended: false,
-    getUrl: (videoUrl: string) => {
-      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
-      return `https://ssyoutube.com/watch?v=${videoId}`;
-    },
-  },
-];
-
-const VideoDownloader: React.FC<VideoDownloaderProps> = ({
-  videoUrl,
-  videoTitle,
-  isOpen,
-  onClose
-}) => {
+/** Dialog pilih layanan downloader (gaya dialog "Bagikan" YouTube). */
+const VideoDownloader: React.FC<VideoDownloaderProps> = ({ videoUrl, videoTitle, isOpen, onClose }) => {
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
         onClose();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [isOpen, onClose]);
-
-  const openDownloader = (service: typeof DOWNLOADER_SERVICES[0]) => {
-    const url = service.getUrl(videoUrl);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
 
   return (
     <AnimatePresence>
@@ -79,94 +31,60 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[350] flex items-center justify-center p-4 md:p-8"
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[350] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+          onClick={onClose}
         >
-          {/* Backdrop */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-black/80 backdrop-blur-md"
-          />
-
-          {/* Modal Content */}
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="relative w-full max-w-md bg-card rounded-3xl overflow-hidden shadow-2xl border border-border"
+            initial={{ y: 24, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 24, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="downloader-title"
+            className="w-full max-w-md rounded-t-xl bg-popover p-6 text-popover-foreground shadow-popover sm:rounded-xl"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/10 rounded-xl">
-                  <IconDownload className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-foreground">Download Video</h2>
-                  <p className="text-xs text-muted-foreground">Choose a download service</p>
-                </div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 id="downloader-title" className="text-base font-medium">Unduh video</h2>
+                <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{videoTitle}</p>
               </div>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={onClose}
-                className="p-2 hover:bg-accent rounded-xl transition-colors"
-              >
-                <IconX className="w-5 h-5 text-muted-foreground" />
-              </motion.button>
+              <button type="button" onClick={onClose} className="yt-icon-btn -mr-2 -mt-2" aria-label="Tutup">
+                <X className="h-6 w-6" strokeWidth={1.75} />
+              </button>
             </div>
 
-            {/* Video Title */}
-            <div className="px-4 py-3 bg-secondary/30">
-              <p className="text-sm font-medium text-foreground line-clamp-2">{videoTitle}</p>
-            </div>
-
-            {/* Downloader Services List */}
-            <div className="p-4 space-y-3">
-              <p className="text-xs text-muted-foreground mb-3">
-                Pilih salah satu layanan di bawah. Akan membuka di tab baru:
-              </p>
-              
-              {DOWNLOADER_SERVICES.map((service) => (
-                <motion.button
-                  key={service.id}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => openDownloader(service)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all ${
-                    service.recommended 
-                      ? 'bg-primary/5 border-primary/30 hover:bg-primary/10' 
-                      : 'bg-secondary/50 border-border hover:bg-secondary'
-                  }`}
-                >
-                  <span className="text-2xl">{service.emoji}</span>
-                  <div className="flex-1 text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-foreground">{service.name}</span>
-                      {service.recommended && (
-                        <span className="text-[10px] font-bold bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                          RECOMMENDED
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{service.description}</p>
-                  </div>
-                  <svg className="w-5 h-5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </motion.button>
+            <ul className="-mx-6 mt-4">
+              {DOWNLOADER_SERVICES.map(service => (
+                <li key={service.id}>
+                  <button
+                    type="button"
+                    onClick={() => openDownloader(service, videoUrl)}
+                    className="flex w-full items-center gap-4 px-6 py-3 text-left transition-colors hover:bg-secondary"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-bold">
+                      {service.name.charAt(0)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        {service.name}
+                        {service.recommended && (
+                          <span className="rounded-sm bg-primary/10 px-1.5 py-px text-[11px] font-medium text-primary">Disarankan</span>
+                        )}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">{service.description}</span>
+                    </span>
+                    <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </li>
               ))}
-            </div>
+            </ul>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-border bg-secondary/30">
-              <p className="text-xs text-muted-foreground text-center">
-                ⚠️ Download hanya untuk penggunaan pribadi. Hormati hak cipta.
-              </p>
-            </div>
+            <p className="mt-4 text-xs leading-5 text-muted-foreground">
+              Dibuka di tab baru melalui layanan pihak ketiga. Unduh hanya untuk penggunaan pribadi dan hormati hak cipta kreator.
+            </p>
           </motion.div>
         </motion.div>
       )}

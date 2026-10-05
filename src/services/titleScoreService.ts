@@ -45,61 +45,62 @@ export const analyzeTitleScore = (title: string): TitleScoreResult => {
   const len = title.length;
   if (len >= 40 && len <= 60) {
     breakdown.length.score = 15;
-    breakdown.length.feedback = `Perfect length (${len} chars)`;
+    breakdown.length.feedback = `Panjang ideal (${len} karakter)`;
   } else if (len >= 30 && len <= 70) {
     breakdown.length.score = 10;
-    breakdown.length.feedback = `Good length (${len} chars)`;
+    breakdown.length.feedback = `Panjang cukup baik (${len} karakter)`;
   } else if (len < 30) {
     breakdown.length.score = 5;
-    breakdown.length.feedback = `Too short (${len} chars)`;
-    suggestions.push('Add more descriptive keywords to reach 40-60 characters');
+    breakdown.length.feedback = `Terlalu pendek (${len} karakter)`;
+    suggestions.push('Tambahkan kata kunci deskriptif hingga 40–60 karakter');
   } else {
     breakdown.length.score = 5;
-    breakdown.length.feedback = `Too long (${len} chars)`;
-    suggestions.push('Shorten your title to under 60 characters for better visibility');
+    breakdown.length.feedback = `Terlalu panjang (${len} karakter)`;
+    suggestions.push('Persingkat judul di bawah 60 karakter agar tidak terpotong');
   }
 
   // 2. Power Words Detection
   const upperTitle = title.toUpperCase();
-  const foundPowerWords = POWER_WORDS.filter(pw => upperTitle.includes(pw));
+  const foundPowerWords = Array.from(new Set(POWER_WORDS)).filter(pw =>
+    new RegExp(`(^|[^\\p{L}])${pw}($|[^\\p{L}])`, 'u').test(upperTitle)
+  );
   breakdown.powerWords.found = foundPowerWords;
   
   if (foundPowerWords.length >= 2) {
     breakdown.powerWords.score = 20;
-    breakdown.powerWords.feedback = `Excellent! Found: ${foundPowerWords.slice(0, 3).join(', ')}`;
+    breakdown.powerWords.feedback = `Sangat baik! Ditemukan: ${foundPowerWords.slice(0, 3).join(', ')}`;
   } else if (foundPowerWords.length === 1) {
     breakdown.powerWords.score = 12;
-    breakdown.powerWords.feedback = `Good! Found: ${foundPowerWords[0]}`;
-    suggestions.push('Add one more power word like SHOCKING, SECRET, or AMAZING');
+    breakdown.powerWords.feedback = `Bagus! Ditemukan: ${foundPowerWords[0]}`;
+    suggestions.push('Tambahkan satu power word lagi, mis. RAHASIA atau AKHIRNYA');
   } else {
     breakdown.powerWords.score = 0;
-    breakdown.powerWords.feedback = 'No power words detected';
-    suggestions.push('Add attention-grabbing words like REVEALED, ULTIMATE, or VIRAL');
+    breakdown.powerWords.feedback = 'Tidak ada power word';
+    suggestions.push('Tambahkan kata pemikat seperti RAHASIA, TERBONGKAR, atau VIRAL');
   }
 
   // 3. Numbers Detection (Top 10, 5 Tips, etc.)
   const numberMatch = title.match(/\b\d+\b/g);
   if (numberMatch && numberMatch.length > 0) {
     breakdown.numbers.score = 15;
-    breakdown.numbers.feedback = `Numbers found: ${numberMatch.join(', ')}`;
+    breakdown.numbers.feedback = `Angka ditemukan: ${numberMatch.join(', ')}`;
   } else {
     breakdown.numbers.score = 0;
-    breakdown.numbers.feedback = 'No numbers in title';
-    suggestions.push('Consider adding a number (e.g., "5 Tips", "Top 10")');
+    breakdown.numbers.feedback = 'Tidak ada angka di judul';
+    suggestions.push('Pertimbangkan menambah angka (mis. "5 Tips", "Top 10")');
   }
 
   // 4. Question Format Detection
   if (title.includes('?')) {
     breakdown.question.score = 10;
-    breakdown.question.feedback = 'Question format detected - great for engagement!';
+    breakdown.question.feedback = 'Format pertanyaan — bagus untuk memancing rasa penasaran';
   } else if (title.toLowerCase().startsWith('how') || title.toLowerCase().startsWith('why') || 
-             title.toLowerCase().startsWith('what') || title.toLowerCase().includes('cara') ||
-             title.toLowerCase().includes('kenapa') || title.toLowerCase().includes('apa')) {
+             title.toLowerCase().startsWith('what') || /\b(cara|kenapa|mengapa|apa|bagaimana|siapa)\b/i.test(title)) {
     breakdown.question.score = 7;
-    breakdown.question.feedback = 'Question-style title detected';
+    breakdown.question.feedback = 'Judul bergaya pertanyaan';
   } else {
     breakdown.question.score = 3;
-    breakdown.question.feedback = 'Statement format';
+    breakdown.question.feedback = 'Format pernyataan';
   }
 
   // 5. Emoji Usage (1-2 is optimal)
@@ -108,15 +109,15 @@ export const analyzeTitleScore = (title: string): TitleScoreResult => {
   
   if (emojis.length >= 1 && emojis.length <= 2) {
     breakdown.emoji.score = 10;
-    breakdown.emoji.feedback = `Perfect emoji usage (${emojis.length})`;
+    breakdown.emoji.feedback = `Penggunaan emoji pas (${emojis.length})`;
   } else if (emojis.length === 0) {
     breakdown.emoji.score = 3;
-    breakdown.emoji.feedback = 'No emojis';
-    suggestions.push('Add 1-2 relevant emojis to increase click-through rate');
+    breakdown.emoji.feedback = 'Tanpa emoji';
+    suggestions.push('Tambahkan 1–2 emoji relevan untuk menaikkan CTR');
   } else {
     breakdown.emoji.score = 5;
-    breakdown.emoji.feedback = `Too many emojis (${emojis.length})`;
-    suggestions.push('Reduce emojis to 1-2 for a cleaner look');
+    breakdown.emoji.feedback = `Emoji terlalu banyak (${emojis.length})`;
+    suggestions.push('Kurangi emoji menjadi 1–2 agar lebih rapi');
   }
 
   // 6. Capitalization Analysis
@@ -126,15 +127,15 @@ export const analyzeTitleScore = (title: string): TitleScoreResult => {
   
   if (capsRatio > 0 && capsRatio <= 0.3) {
     breakdown.capitalization.score = 10;
-    breakdown.capitalization.feedback = 'Strategic capitalization used';
+    breakdown.capitalization.feedback = 'Kapitalisasi strategis';
   } else if (capsRatio === 0) {
     breakdown.capitalization.score = 5;
-    breakdown.capitalization.feedback = 'No strategic caps';
-    suggestions.push('Capitalize 1-2 key words for emphasis');
+    breakdown.capitalization.feedback = 'Tanpa kapitalisasi penekanan';
+    suggestions.push('Kapitalkan 1–2 kata kunci untuk penekanan');
   } else {
     breakdown.capitalization.score = 3;
-    breakdown.capitalization.feedback = 'Too much capitalization';
-    suggestions.push('Use capitalization sparingly for key words only');
+    breakdown.capitalization.feedback = 'Terlalu banyak huruf kapital';
+    suggestions.push('Gunakan huruf kapital hanya untuk kata kunci');
   }
 
   // Calculate total score

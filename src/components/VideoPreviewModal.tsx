@@ -1,8 +1,25 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { VideoItem, ToastType } from '../types';
-import { IconX, IconBookmark, IconCopy, IconDownload, IconPlay } from '../constants/icons';
+import {
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Bookmark,
+  BookmarkCheck,
+  Share2,
+  ImageDown,
+  Download,
+  ExternalLink,
+  ThumbsUp,
+  MessageSquare,
+  Activity,
+  Clock,
+} from 'lucide-react';
+import { VideoItem, ShowToast } from '../types';
 import VideoDownloader from './VideoDownloader';
+import { ChannelAvatar } from './VideoCard';
+import { copyToClipboard, downloadThumbnail } from '../services/exportService';
+import { formatFullNumber, formatDate } from '../lib/format';
 
 interface VideoPreviewModalProps {
   video: VideoItem | null;
@@ -11,12 +28,15 @@ interface VideoPreviewModalProps {
   onNext?: () => void;
   onPrev?: () => void;
   onSaveToggle?: (video: VideoItem) => void;
+  onAnalyzeChannel?: (channelId: string) => void;
   isSaved?: boolean;
-  onToast: (msg: string, type: ToastType) => void;
+  onToast: ShowToast;
   hasNext?: boolean;
   hasPrev?: boolean;
+  position?: { index: number; total: number };
 }
 
+/** Pratinjau video dengan tata letak halaman tonton YouTube. */
 const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
   video,
   isOpen,
@@ -24,56 +44,71 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
   onNext,
   onPrev,
   onSaveToggle,
+  onAnalyzeChannel,
   isSaved,
   onToast,
   hasNext,
   hasPrev,
+  position,
 }) => {
   const [showDownloader, setShowDownloader] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!isOpen || showDownloader) return;
-    
-    if (e.key === 'Escape') {
-      onClose();
-    } else if (e.key === 'ArrowRight' && hasNext) {
-      onNext?.();
-    } else if (e.key === 'ArrowLeft' && hasPrev) {
-      onPrev?.();
-    } else if (e.key === 's' || e.key === 'S') {
-      if (video) onSaveToggle?.(video);
-    }
-  }, [isOpen, onClose, onNext, onPrev, hasNext, hasPrev, video, onSaveToggle, showDownloader]);
+  useEffect(() => setExpanded(false), [video?.id]);
+
+  // Kunci scroll halaman saat modal terbuka
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    if (!isOpen || showDownloader) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight' && hasNext) onNext?.();
+      else if (e.key === 'ArrowLeft' && hasPrev) onPrev?.();
+      else if ((e.key === 's' || e.key === 'S') && video && !e.metaKey && !e.ctrlKey) onSaveToggle?.(video);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, showDownloader, onClose, onNext, onPrev, hasNext, hasPrev, video, onSaveToggle]);
 
-  const copyLink = () => {
-    if (!video) return;
-    navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${video.id}`).then(() => {
-      onToast("Link tersalin", "success");
-    });
+  if (!video) return null;
+  const url = `https://www.youtube.com/watch?v=${video.id}`;
+
+  const copyLink = async () => {
+    try {
+      await copyToClipboard(url);
+      onToast('Link disalin ke papan klip', 'success');
+    } catch {
+      onToast('Gagal menyalin link', 'error');
+    }
   };
 
   const downloadThumb = async () => {
-    if (!video) return;
-    onToast("Mengunduh thumbnail...", "loading");
+    onToast('Mengunduh thumbnail…', 'loading');
     try {
-      const res = await fetch(video.thumbnail);
-      const blob = await res.blob();
-      if (window.saveAs) {
-        const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 100);
-        window.saveAs(blob, `${safeTitle}.jpg`);
-        onToast("Thumbnail berhasil diunduh", "success");
-      }
-    } catch (err) {
-      onToast("Gagal mengunduh gambar", "error");
+      await downloadThumbnail(video);
+      onToast('Thumbnail diunduh', 'success');
+    } catch {
+      window.open(video.thumbnail, '_blank', 'noopener,noreferrer');
+      onToast('Unduhan langsung diblokir — thumbnail dibuka di tab baru', 'info');
     }
   };
 
-  if (!video) return null;
+  const stats = [
+    { icon: ThumbsUp, label: 'Suka', value: formatFullNumber(video.likeCountRaw) },
+    { icon: MessageSquare, label: 'Komentar', value: formatFullNumber(video.commentCountRaw) },
+    { icon: Activity, label: 'Engagement', value: `${video.engagementRate}%` },
+    { icon: Clock, label: 'Durasi', value: video.durationFormatted },
+  ];
 
   return (
     <>
@@ -83,167 +118,149 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] flex items-center justify-center p-4 md:p-8"
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[300] flex items-stretch justify-center bg-black/80 md:items-center md:p-6"
+            onClick={onClose}
           >
-            {/* Backdrop */}
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            />
-
-            {/* Modal Content */}
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="relative w-full max-w-5xl bg-card rounded-3xl overflow-hidden shadow-2xl border border-border"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={e => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={video.title}
+              className="flex w-full max-w-[1100px] flex-col overflow-hidden bg-background md:max-h-[94vh] md:rounded-xl"
             >
-              {/* Close Button */}
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={onClose}
-                className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-xl transition-colors"
-              >
-                <IconX className="w-5 h-5 text-white" />
-              </motion.button>
-
-              {/* Navigation Arrows */}
-              {hasPrev && (
-                <motion.button
-                  whileHover={{ scale: 1.1, x: -2 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={onPrev}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 bg-black/50 hover:bg-black/70 rounded-xl transition-colors"
-                >
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                </motion.button>
-              )}
-              {hasNext && (
-                <motion.button
-                  whileHover={{ scale: 1.1, x: 2 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={onNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 bg-black/50 hover:bg-black/70 rounded-xl transition-colors"
-                >
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </motion.button>
-              )}
-
-              {/* Video Player */}
-              <div className="aspect-video bg-black">
-                <iframe
-                  src={`https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0`}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+              {/* Bar atas */}
+              <div className="flex h-12 shrink-0 items-center gap-1 px-2">
+                <button type="button" onClick={onClose} className="yt-icon-btn" aria-label="Tutup (Esc)">
+                  <X className="h-6 w-6" strokeWidth={1.75} />
+                </button>
+                {position && (
+                  <span className="ml-1 text-sm text-muted-foreground">
+                    {position.index + 1} / {position.total}
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  <button type="button" onClick={onPrev} disabled={!hasPrev} className="yt-icon-btn" aria-label="Sebelumnya (←)">
+                    <ChevronLeft className="h-6 w-6" strokeWidth={1.75} />
+                  </button>
+                  <button type="button" onClick={onNext} disabled={!hasNext} className="yt-icon-btn" aria-label="Berikutnya (→)">
+                    <ChevronRight className="h-6 w-6" strokeWidth={1.75} />
+                  </button>
+                </div>
               </div>
 
-              {/* Video Info */}
-              <div className="p-6">
-                <div className="flex items-start gap-4">
-                  <div className="flex-1">
-                    <h2 className="text-lg md:text-xl font-bold text-foreground line-clamp-2 mb-2">
-                      {video.title}
-                    </h2>
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-                      <span className="font-medium">{video.channelTitle}</span>
-                      <span className="opacity-30">•</span>
-                      <span>{video.views}</span>
-                      <span className="opacity-30">•</span>
-                      <span>{video.publishedTimeAgo}</span>
+              <div className="overflow-y-auto">
+                <div className="aspect-video max-h-[62vh] w-full bg-black">
+                  <iframe
+                    key={video.id}
+                    src={`https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0&modestbranding=1`}
+                    title={video.title}
+                    className="h-full w-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
+                  />
+                </div>
+
+                <div className="p-3 sm:p-4 md:px-6 md:pb-6">
+                  <h1 className="line-clamp-2 text-lg font-bold leading-7 text-foreground md:text-xl">{video.title}</h1>
+
+                  <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <ChannelAvatar name={video.channelTitle} size={40} />
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-medium text-foreground">{video.channelTitle}</p>
+                        <p className="text-xs text-muted-foreground">{video.isShort ? 'Shorts' : 'Video'}</p>
+                      </div>
+                      {onAnalyzeChannel && video.channelId && (
+                        <button
+                          type="button"
+                          onClick={() => onAnalyzeChannel(video.channelId)}
+                          className="yt-pill-primary ml-2"
+                        >
+                          Analisis channel
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="-mx-3 flex gap-2 overflow-x-auto px-3 no-scrollbar sm:mx-0 sm:px-0">
+                      <button type="button" onClick={() => onSaveToggle?.(video)} className="yt-pill">
+                        {isSaved ? <BookmarkCheck className="h-5 w-5" strokeWidth={1.75} /> : <Bookmark className="h-5 w-5" strokeWidth={1.75} />}
+                        {isSaved ? 'Tersimpan' : 'Simpan'}
+                      </button>
+                      <button type="button" onClick={copyLink} className="yt-pill">
+                        <Share2 className="h-5 w-5" strokeWidth={1.75} /> Salin link
+                      </button>
+                      <button type="button" onClick={downloadThumb} className="yt-pill">
+                        <ImageDown className="h-5 w-5" strokeWidth={1.75} /> Thumbnail
+                      </button>
+                      <button type="button" onClick={() => setShowDownloader(true)} className="yt-pill">
+                        <Download className="h-5 w-5" strokeWidth={1.75} /> Unduh
+                      </button>
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="yt-pill" aria-label="Buka di YouTube">
+                        <ExternalLink className="h-5 w-5" strokeWidth={1.75} />
+                      </a>
                     </div>
                   </div>
 
-                  {/* Stats */}
-                  <div className="hidden md:flex items-center gap-4">
-                    <div className="text-center px-4 py-2 bg-secondary rounded-xl">
-                      <p className="text-xs text-muted-foreground font-medium">Likes</p>
-                      <p className="text-lg font-bold text-foreground">{video.likes}</p>
+                  {/* Kotak deskripsi */}
+                  <div
+                    className={`mt-3 rounded-xl bg-secondary p-3 text-sm ${expanded ? '' : 'cursor-pointer hover:bg-accent'}`}
+                    onClick={() => !expanded && setExpanded(true)}
+                  >
+                    <p className="font-medium text-foreground">
+                      {formatFullNumber(video.viewCountRaw)} x ditonton
+                      <span className="ml-2">{formatDate(video.publishedAt)}</span>
+                      {video.tags.slice(0, 3).map(tag => (
+                        <span key={tag} className="ml-2 text-primary">#{tag.replace(/\s+/g, '')}</span>
+                      ))}
+                    </p>
+
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {stats.map(({ icon: Icon, label, value }) => (
+                        <div key={label} className="flex items-center gap-2 rounded-lg bg-background/60 px-3 py-2">
+                          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                          <div className="min-w-0">
+                            <p className="text-[11px] leading-4 text-muted-foreground">{label}</p>
+                            <p className="truncate font-medium leading-5 text-foreground">{value}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="text-center px-4 py-2 bg-secondary rounded-xl">
-                      <p className="text-xs text-muted-foreground font-medium">Comments</p>
-                      <p className="text-lg font-bold text-foreground">{video.comments}</p>
-                    </div>
-                    <div className={`text-center px-4 py-2 rounded-xl ${
-                      video.engagementRate >= 5 
-                        ? 'bg-emerald-50 dark:bg-emerald-950/30' 
-                        : video.engagementRate >= 2 
-                          ? 'bg-primary/10' 
-                          : 'bg-secondary'
-                    }`}>
-                      <p className="text-xs text-muted-foreground font-medium">ER</p>
-                      <p className={`text-lg font-bold ${
-                        video.engagementRate >= 5 
-                          ? 'text-emerald-600 dark:text-emerald-400' 
-                          : video.engagementRate >= 2 
-                            ? 'text-primary' 
-                            : 'text-foreground'
-                      }`}>
-                        {video.engagementRate}%
+
+                    {video.description && (
+                      <p className={`mt-3 whitespace-pre-line break-words text-foreground ${expanded ? '' : 'line-clamp-3'}`}>
+                        {video.description}
                       </p>
-                    </div>
+                    )}
+                    {video.tags.length > 0 && expanded && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {video.tags.map(tag => (
+                          <span key={tag} className="rounded-full bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                    {(video.description || video.tags.length > 0) && (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setExpanded(x => !x);
+                        }}
+                        className="mt-2 font-medium text-foreground"
+                      >
+                        {expanded ? 'Sembunyikan' : '…selengkapnya'}
+                      </button>
+                    )}
                   </div>
-                </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center gap-3 mt-6 pt-6 border-t border-border flex-wrap">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => onSaveToggle?.(video)}
-                    className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-sm transition-colors ${
-                      isSaved 
-                        ? 'bg-primary text-primary-foreground' 
-                        : 'bg-secondary text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    <IconBookmark filled={!!isSaved} className="w-4 h-4" />
-                    {isSaved ? 'Saved' : 'Save'}
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={copyLink}
-                    className="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 bg-secondary text-foreground rounded-2xl font-bold text-sm hover:bg-accent transition-colors"
-                  >
-                    <IconCopy className="w-4 h-4" />
-                    Copy Link
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={downloadThumb}
-                    className="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 bg-primary/10 text-primary rounded-2xl font-bold text-sm hover:bg-primary/20 transition-colors"
-                  >
-                    <IconDownload className="w-4 h-4" />
-                    Thumbnail
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setShowDownloader(true)}
-                    className="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 bg-destructive/10 text-destructive rounded-2xl font-bold text-sm hover:bg-destructive/20 transition-colors"
-                  >
-                    <IconPlay className="w-4 h-4" />
-                    Download Video
-                  </motion.button>
-                </div>
-
-                {/* Keyboard Hints */}
-                <div className="hidden md:flex items-center justify-center gap-6 mt-4 text-xs text-muted-foreground">
-                  <span>← → Navigate</span>
-                  <span>S Save</span>
-                  <span>ESC Close</span>
+                  <p className="mt-3 hidden text-center text-xs text-muted-foreground md:block">
+                    ← → navigasi &nbsp;·&nbsp; S simpan &nbsp;·&nbsp; Esc tutup
+                  </p>
                 </div>
               </div>
             </motion.div>
@@ -251,10 +268,9 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Video Downloader Modal */}
       <VideoDownloader
-        videoUrl={`https://www.youtube.com/watch?v=${video?.id}`}
-        videoTitle={video?.title || ''}
+        videoUrl={url}
+        videoTitle={video.title}
         isOpen={showDownloader}
         onClose={() => setShowDownloader(false)}
       />

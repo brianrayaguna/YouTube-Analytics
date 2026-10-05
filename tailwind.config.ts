@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
@@ -14,7 +15,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Plus Jakarta Sans", "Inter", "system-ui", "sans-serif"],
+        sans: ["Roboto", "Arial", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -60,25 +61,17 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        // YouTube Brand Colors
+        // YouTube brand & inverse (chip aktif / snackbar)
         youtube: {
           red: "hsl(var(--yt-red))",
         },
-        // Status Colors
+        inverse: {
+          DEFAULT: "hsl(var(--inverse))",
+          foreground: "hsl(var(--inverse-foreground))",
+        },
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
         info: "hsl(var(--info))",
-        // Brand Scale
-        brand: {
-          50: "hsl(var(--brand-50))",
-          100: "hsl(var(--brand-100))",
-          600: "hsl(var(--brand-600))",
-          700: "hsl(var(--brand-700))",
-        },
-        // Zinc Extended for Dark Mode
-        zinc: {
-          950: "#09090b",
-        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -133,11 +126,9 @@ export default {
         shimmer: "shimmer 1.5s infinite",
       },
       boxShadow: {
-        premium: "0 1px 2px rgba(0,0,0,0.02), 0 4px 8px rgba(0,0,0,0.02), 0 16px 32px rgba(0,0,0,0.04)",
-        "premium-lg": "0 4px 6px rgba(0,0,0,0.02), 0 10px 20px rgba(0,0,0,0.03), 0 25px 50px rgba(0,0,0,0.05)",
-        glow: "0 0 20px rgba(99, 102, 241, 0.3)",
+        popover: "0 4px 32px 0 rgba(0,0,0,0.1)",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;

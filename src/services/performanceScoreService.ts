@@ -25,18 +25,32 @@ export interface VideoWithScores extends VideoItem {
   thumbnailScore: PerformanceScore;
 }
 
-// Calculate percentile position of a value in a sorted array
-const getPercentile = (value: number, allValues: number[]): number => {
-  if (allValues.length === 0) return 50;
-  const sorted = [...allValues].sort((a, b) => a - b);
-  const index = sorted.findIndex(v => v >= value);
-  if (index === -1) return 100;
-  return Math.round((index / sorted.length) * 100);
+// Percentile = share of values strictly below `value` (binary search on a pre-sorted array)
+const percentileInSorted = (value: number, sorted: number[]): number => {
+  if (sorted.length === 0) return 50;
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return Math.round((lo / sorted.length) * 100);
 };
 
-// Convert percentile to a 0-100 score
-const percentileToScore = (percentile: number): number => {
-  return Math.round(percentile);
+interface SortedMetrics {
+  views: number[];
+  likes: number[];
+  er: number[];
+}
+
+const buildSortedMetrics = (videos: VideoItem[]): SortedMetrics => {
+  const asc = (a: number, b: number) => a - b;
+  return {
+    views: videos.map(v => v.viewCountRaw).sort(asc),
+    likes: videos.map(v => v.likeCountRaw).sort(asc),
+    er: videos.map(v => v.engagementRate).sort(asc),
+  };
 };
 
 // Calculate recency bonus based on how quickly video gained views
@@ -69,14 +83,14 @@ const getGrade = (score: number): 'A' | 'B' | 'C' | 'D' | 'F' => {
 };
 
 // Calculate Title Performance Score
-export const calculateTitlePerformanceScore = (video: VideoItem, allVideos: VideoItem[]): PerformanceScore => {
-  const allViews = allVideos.map(v => v.viewCountRaw);
-  const allLikes = allVideos.map(v => v.likeCountRaw);
-  const allER = allVideos.map(v => v.engagementRate);
-  
-  const viewsPercentile = getPercentile(video.viewCountRaw, allViews);
-  const likesPercentile = getPercentile(video.likeCountRaw, allLikes);
-  const erPercentile = getPercentile(video.engagementRate, allER);
+export const calculateTitlePerformanceScore = (
+  video: VideoItem,
+  allVideos: VideoItem[],
+  metrics: SortedMetrics = buildSortedMetrics(allVideos)
+): PerformanceScore => {
+  const viewsPercentile = percentileInSorted(video.viewCountRaw, metrics.views);
+  const likesPercentile = percentileInSorted(video.likeCountRaw, metrics.likes);
+  const erPercentile = percentileInSorted(video.engagementRate, metrics.er);
   
   // Get text analysis score (from existing titleScoreService)
   const textAnalysis = analyzeTitleScore(video.title);
@@ -98,21 +112,22 @@ export const calculateTitlePerformanceScore = (video: VideoItem, allVideos: Vide
     erPercentile,
     textScore,
     breakdown: {
-      views: { score: Math.round(viewsPercentile * 0.35), max: 35, label: `Top ${100 - viewsPercentile}% in views` },
-      likes: { score: Math.round(likesPercentile * 0.25), max: 25, label: `Top ${100 - likesPercentile}% in likes` },
-      engagement: { score: Math.round(erPercentile * 0.20), max: 20, label: `${video.engagementRate}% engagement rate` },
-      text: { score: Math.round(textScore * 0.20), max: 20, label: textAnalysis.suggestions[0] || 'Good title structure' }
+      views: { score: Math.round(viewsPercentile * 0.35), max: 35, label: `Top ${Math.max(1, 100 - viewsPercentile)}% views` },
+      likes: { score: Math.round(likesPercentile * 0.25), max: 25, label: `Top ${Math.max(1, 100 - likesPercentile)}% likes` },
+      engagement: { score: Math.round(erPercentile * 0.20), max: 20, label: `Engagement rate ${video.engagementRate}%` },
+      text: { score: Math.round(textScore * 0.20), max: 20, label: textAnalysis.suggestions[0] || 'Struktur judul sudah baik' }
     }
   };
 };
 
 // Calculate Thumbnail Performance Score
-export const calculateThumbnailPerformanceScore = (video: VideoItem, allVideos: VideoItem[]): PerformanceScore => {
-  const allViews = allVideos.map(v => v.viewCountRaw);
-  const allER = allVideos.map(v => v.engagementRate);
-  
-  const viewsPercentile = getPercentile(video.viewCountRaw, allViews);
-  const erPercentile = getPercentile(video.engagementRate, allER);
+export const calculateThumbnailPerformanceScore = (
+  video: VideoItem,
+  allVideos: VideoItem[],
+  metrics: SortedMetrics = buildSortedMetrics(allVideos)
+): PerformanceScore => {
+  const viewsPercentile = percentileInSorted(video.viewCountRaw, metrics.views);
+  const erPercentile = percentileInSorted(video.engagementRate, metrics.er);
   const recencyBonus = calculateRecencyBonus(video);
   
   // Weighted formula: Views 40%, ER 30%, Recency 30%
@@ -130,20 +145,21 @@ export const calculateThumbnailPerformanceScore = (video: VideoItem, allVideos: 
     erPercentile,
     recencyBonus,
     breakdown: {
-      views: { score: Math.round(viewsPercentile * 0.40), max: 40, label: `Top ${100 - viewsPercentile}% in views (CTR proxy)` },
+      views: { score: Math.round(viewsPercentile * 0.40), max: 40, label: `Top ${Math.max(1, 100 - viewsPercentile)}% views (proksi CTR)` },
       likes: { score: 0, max: 0, label: '' }, // Not displayed
-      engagement: { score: Math.round(erPercentile * 0.30), max: 30, label: `${video.engagementRate}% keeps viewers engaged` },
-      recency: { score: Math.round(recencyBonus * 0.30), max: 30, label: `Quick view acquisition bonus` }
+      engagement: { score: Math.round(erPercentile * 0.30), max: 30, label: `ER ${video.engagementRate}% — penonton tetap terlibat` },
+      recency: { score: Math.round(recencyBonus * 0.30), max: 30, label: `Bonus kecepatan mendapatkan views` }
     }
   };
 };
 
 // Calculate scores for all videos
 export const calculateAllVideoScores = (videos: VideoItem[]): VideoWithScores[] => {
+  const metrics = buildSortedMetrics(videos);
   return videos.map(video => ({
     ...video,
-    titleScore: calculateTitlePerformanceScore(video, videos),
-    thumbnailScore: calculateThumbnailPerformanceScore(video, videos)
+    titleScore: calculateTitlePerformanceScore(video, videos, metrics),
+    thumbnailScore: calculateThumbnailPerformanceScore(video, videos, metrics)
   }));
 };
 

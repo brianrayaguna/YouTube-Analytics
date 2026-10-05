@@ -1,4 +1,6 @@
 import { VideoItem } from '../types';
+import { downloadBlob } from './exportService';
+import { safeFileName } from '../lib/format';
 
 /**
  * Helper to crop image to 9:16 aspect ratio via Canvas
@@ -39,19 +41,16 @@ export const generateZip = async (
   list: VideoItem[],
   name: string,
   onProgress: (percent: number) => void
-): Promise<void> => {
-  if (!list.length) return;
+): Promise<{ succeeded: number; failed: number }> => {
+  if (!list.length) return { succeeded: 0, failed: 0 };
 
-  const JSZip = window.JSZip;
-  const saveAs = window.saveAs;
-
-  if (!JSZip || !saveAs) {
-    throw new Error("JSZip or FileSaver library not loaded.");
-  }
+  // JSZip dibundel lewat npm dan dimuat hanya saat dibutuhkan
+  const { default: JSZip } = await import('jszip');
 
   onProgress(1);
   const zip = new JSZip();
-  const folder = zip.folder(name);
+  const folder = zip.folder(safeFileName(name))!;
+  let succeeded = 0;
 
   // Concurrency limit to prevent memory spikes
   const BATCH_SIZE = 5;
@@ -70,11 +69,9 @@ export const generateZip = async (
           blob = await res.blob();
         }
 
-        let safeTitle = v.title.replace(/[\\/:*?"<>|]/g, '_');
-        safeTitle = safeTitle.substring(0, 100).trim();
-
-        const fileName = `${globalIndex + 1}. ${safeTitle}.jpg`;
+        const fileName = `${globalIndex + 1}. ${safeFileName(v.title)}.jpg`;
         folder.file(fileName, blob);
+        succeeded++;
 
       } catch (e) {
         console.warn("Failed process thumbnail:", v.title, e);
@@ -84,7 +81,12 @@ export const generateZip = async (
     onProgress(Math.round(((i + batch.length) / list.length) * 100));
   }
 
+  if (succeeded === 0) {
+    throw new Error("Tidak ada thumbnail yang berhasil diunduh.");
+  }
+
   const content = await zip.generateAsync({ type: 'blob' });
-  saveAs(content, `${name}_Thumbnails.zip`);
+  downloadBlob(content, `${safeFileName(name)}_Thumbnails.zip`);
   onProgress(0);
+  return { succeeded, failed: list.length - succeeded };
 };

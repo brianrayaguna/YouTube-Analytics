@@ -18,30 +18,47 @@ export interface ContentGapResult {
   }>;
 }
 
+// Kata umum yang tidak bermakna sebagai topik (ID + EN)
+const STOPWORDS = new Set([
+  'yang', 'dan', 'untuk', 'dengan', 'dari', 'ini', 'itu', 'pada', 'adalah', 'atau', 'juga', 'akan', 'bisa',
+  'saat', 'kami', 'kita', 'saya', 'kamu', 'mereka', 'tidak', 'sudah', 'lagi', 'jadi', 'buat', 'sama', 'karena',
+  'ternyata', 'banget', 'paling', 'semua', 'official', 'video', 'full', 'part', 'episode', 'shorts', 'short',
+  'the', 'and', 'for', 'with', 'this', 'that', 'from', 'your', 'you', 'are', 'was', 'what', 'how', 'why',
+  'when', 'who', 'will', 'have', 'has', 'just', 'into', 'about', 'they', 'their', 'them', 'out', 'new', 'vs',
+]);
+
+const tokenize = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
+
 // Extract topics from video tags and titles
 const extractTopics = (videos: VideoItem[]): Map<string, number> => {
   const topicMap = new Map<string, number>();
+  const add = (topic: string) => topicMap.set(topic, (topicMap.get(topic) || 0) + 1);
 
   videos.forEach(video => {
-    // Extract from tags
+    const seen = new Set<string>();
+    const addOnce = (topic: string) => {
+      if (seen.has(topic)) return;
+      seen.add(topic);
+      add(topic);
+    };
+
+    // Tags
     video.tags.forEach(tag => {
       const normalizedTag = tag.toLowerCase().trim();
-      if (normalizedTag.length > 2) {
-        topicMap.set(normalizedTag, (topicMap.get(normalizedTag) || 0) + 1);
-      }
+      if (normalizedTag.length > 2 && !STOPWORDS.has(normalizedTag)) addOnce(normalizedTag);
     });
 
-    // Extract key phrases from title (simple extraction)
-    const titleWords = video.title
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 3);
-
-    // Extract 2-word phrases
+    // Kata & frasa 2 kata dari judul
+    const titleWords = tokenize(video.title);
+    titleWords.forEach(w => w.length > 3 && addOnce(w));
     for (let i = 0; i < titleWords.length - 1; i++) {
-      const phrase = `${titleWords[i]} ${titleWords[i + 1]}`;
-      topicMap.set(phrase, (topicMap.get(phrase) || 0) + 1);
+      addOnce(`${titleWords[i]} ${titleWords[i + 1]}`);
     }
   });
 
@@ -62,9 +79,9 @@ const calculateTopicPotential = (topic: string, trendingVideos: VideoItem[]): nu
 };
 
 const formatPotentialViews = (views: number): string => {
-  if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M+ potential views`;
-  if (views >= 1000) return `${(views / 1000).toFixed(0)}K+ potential views`;
-  return `${views} potential views`;
+  if (views >= 1000000) return `±${(views / 1000000).toFixed(1)}M views`;
+  if (views >= 1000) return `±${(views / 1000).toFixed(0)}K views`;
+  return `±${Math.round(views)} views`;
 };
 
 export const analyzeContentGap = (
@@ -81,17 +98,18 @@ export const analyzeContentGap = (
     .map(([topic]) => topic);
 
   const trendingTopics = Array.from(trendingTopicsMap.entries())
+    .filter(([, count]) => count >= 2)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 50)
     .map(([topic]) => topic);
 
   // Find gaps: trending topics NOT in channel
-  const channelTopicsSet = new Set(channelTopics);
+  const channelTopicsSet = new Set(channelTopicsMap.keys());
   const missingTopicsRaw = trendingTopics.filter(topic => !channelTopicsSet.has(topic));
 
   // Calculate overlap
   const overlapCount = trendingTopics.filter(t => channelTopicsSet.has(t)).length;
-  const overlapPercentage = Math.round((overlapCount / trendingTopics.length) * 100);
+  const overlapPercentage = trendingTopics.length ? Math.round((overlapCount / trendingTopics.length) * 100) : 0;
 
   // Score missing topics by frequency and views
   const missingTopics = missingTopicsRaw
@@ -112,7 +130,7 @@ export const analyzeContentGap = (
     const potential = calculateTopicPotential(item.topic, trendingVideos);
     return {
       topic: item.topic,
-      reason: `Trending in ${item.frequency} videos but missing from your channel`,
+      reason: `Muncul di ${item.frequency} video trending, belum ada di channel ini`,
       potentialViews: formatPotentialViews(potential)
     };
   });
