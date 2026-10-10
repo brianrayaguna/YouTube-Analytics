@@ -142,6 +142,21 @@ describe('exports', () => {
     expect(report.rows[2].engagementRate).toBeNull();
   });
 
+  it('CSV: neutralises formula injection from untrusted titles/tags', async () => {
+    const hostile = buildReport(
+      [
+        video('ddddddddddd', { title: '=HYPERLINK("http://evil.example","klik")', tags: ['+cmd', '-1', '@SUM(A1)'] }),
+        video('eeeeeeeeeee', { title: '\tTab di depan' }),
+      ],
+      { title: 'Uji', source: 'channel', generatedAt: new Date(NOW) }
+    );
+    const csv = await buildCsv(hostile).text();
+    expect(csv).not.toMatch(/(^|,)=HYPERLINK/m);
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"",""klik"")"`);
+    expect(csv).toContain(`"'+cmd | -1 | @SUM(A1)"`);
+    expect(csv).toContain(`"'\tTab di depan"`);
+  });
+
   it('CSV: BOM, header and escaped cells', async () => {
     const bytes = new Uint8Array(await buildCsv(report).arrayBuffer());
     expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);

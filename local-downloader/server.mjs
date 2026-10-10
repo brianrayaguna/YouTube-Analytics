@@ -15,22 +15,24 @@
  *   FFMPEG_PATH      Path ke ffmpeg (file atau folder) bila tidak ada di PATH
  *   ALLOWED_ORIGINS  Origin tambahan, dipisah koma (mis. https://domain-anda.com)
  *   MAX_CONCURRENT   Jumlah unduhan paralel (default 2)
+ *   AUTH_TOKEN       Token akses tetap (default: dibuat otomatis & disimpan di ~/.yt-analyzer-downloader-token)
  */
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 const PORT = Number(process.env.PORT) || 17890;
 const HOST = '127.0.0.1';
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.join(os.homedir(), 'Downloads', 'YT Analyzer');
 const MAX_CONCURRENT = Math.max(1, Number(process.env.MAX_CONCURRENT) || 2);
 const MAX_BODY = 16 * 1024;
 const MAX_JOBS_KEPT = 100;
+const TOKEN_FILE = path.join(os.homedir(), '.yt-analyzer-downloader-token');
 
 const DEFAULT_ORIGINS = [
   'https://youtube-analytics-eta.vercel.app',
@@ -39,8 +41,8 @@ const DEFAULT_ORIGINS = [
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ];
-// Preview deployment Vercel proyek ini
-const ORIGIN_PATTERNS = [/^https:\/\/youtube-analytics-[a-z0-9-]+\.vercel\.app$/];
+// Catatan: tidak ada pola wildcard (mis. *.vercel.app) — siapa pun bisa membuat deployment
+// dengan nama serupa. Origin preview/domain lain harus ditambahkan eksplisit lewat ALLOWED_ORIGINS.
 
 export const QUALITIES = ['best', '2160', '1440', '1080', '720', '480', '360'];
 export const FORMATS = ['mp4', 'mp3'];
@@ -58,9 +60,53 @@ export const parseAllowedOrigins = (extra = '') => [
 ];
 
 export const isOriginAllowed = (origin, allowed) => {
-  if (!origin) return true; // permintaan non-browser (curl) dari mesin yang sama
-  if (allowed.includes('*') || allowed.includes(origin)) return true;
-  return ORIGIN_PATTERNS.some(re => re.test(origin));
+  if (!origin) return true; // permintaan non-browser (curl) dari mesin yang sama — tetap wajib token
+  return allowed.includes('*') || allowed.includes(origin);
+};
+
+/** Token akses: dari AUTH_TOKEN, atau dibuat sekali dan disimpan di TOKEN_FILE. */
+export const loadToken = () => {
+  const fromEnv = (process.env.AUTH_TOKEN || '').trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const saved = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    if (saved.length >= 16) return saved;
+  } catch {
+    // belum ada
+  }
+  const token = randomBytes(24).toString('base64url');
+  try {
+    fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
+  } catch {
+    // tidak bisa menyimpan — token berlaku untuk sesi ini saja
+  }
+  return token;
+};
+
+export const isTokenValid = (header, token) => {
+  if (typeof header !== 'string' || typeof token !== 'string' || !token) return false;
+  const m = /^Bearer\s+(\S+)$/i.exec(header.trim());
+  if (!m) return false;
+  const a = Buffer.from(m[1]);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
+const isPrivateIPv4 = (a, b) =>
+  a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+
+/** Tolak alamat loopback/LAN/link-local & nama host intranet agar yt-dlp tidak dipakai mengakses jaringan lokal (SSRF). */
+export const isPublicHostname = hostname => {
+  const h = String(hostname || '')
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!h || h.startsWith('[')) return false; // IPv6 literal
+  if (/^\d+(\.\d+){3}$/.test(h)) {
+    const [a, b] = h.split('.').map(Number);
+    return !isPrivateIPv4(a, b);
+  }
+  if (!h.includes('.')) return false; // localhost, nama mesin di LAN
+  return !/\.(localhost|local|internal|intranet|lan|home|arpa)$/.test(h);
 };
 
 /** Cegah DNS rebinding: hanya terima Host localhost/127.0.0.1. */
@@ -71,6 +117,7 @@ export const validateUrl = raw => {
   try {
     const u = new URL(raw.trim());
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (!isPublicHostname(u.hostname)) return null;
     return u.toString();
   } catch {
     return null;
@@ -558,6 +605,8 @@ const send = (res, status, body, origin) => {
   res.end(JSON.stringify(body));
 };
 
+const httpError = (status, message) => Object.assign(new Error(message), { status });
+
 const readBody = req =>
   new Promise((resolve, reject) => {
     let size = 0;
@@ -565,25 +614,29 @@ const readBody = req =>
     req.on('data', chunk => {
       size += chunk.length;
       if (size > MAX_BODY) {
-        reject(new Error('Body terlalu besar'));
+        reject(httpError(413, 'Body terlalu besar'));
         req.destroy();
         return;
       }
       data += chunk;
     });
     req.on('end', () => {
+      let parsed;
       try {
-        resolve(data ? JSON.parse(data) : {});
+        parsed = data ? JSON.parse(data) : {};
       } catch {
-        reject(new Error('JSON tidak valid'));
+        return reject(httpError(400, 'JSON tidak valid'));
       }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return reject(httpError(400, 'Body harus berupa objek JSON'));
+      resolve(parsed);
     });
     req.on('error', reject);
   });
 
-export const createServer = () =>
+export const createServer = ({ token = loadToken() } = {}) =>
   http.createServer(async (req, res) => {
     const origin = req.headers.origin;
+    const authorized = isTokenValid(req.headers.authorization, token);
 
     if (!isHostAllowed(req.headers.host)) return send(res, 403, { error: 'Host tidak diizinkan' });
     if (!isOriginAllowed(origin, allowedOrigins)) {
@@ -594,7 +647,7 @@ export const createServer = () =>
       res.writeHead(204, {
         'Access-Control-Allow-Origin': origin || '*',
         'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         // Chrome Private Network Access (halaman HTTPS → localhost)
         'Access-Control-Allow-Private-Network': 'true',
         'Access-Control-Max-Age': '600',
@@ -619,13 +672,18 @@ export const createServer = () =>
             ytdlp: engine.ytdlpVersion,
             ffmpeg: engine.ffmpegVersion,
             ffprobe: !!engine.ffprobeCmd,
-            downloadDir: DOWNLOAD_DIR,
+            authorized,
+            ...(authorized ? { downloadDir: DOWNLOAD_DIR } : {}),
             platform: process.platform,
             active,
             queued: queue.filter(j => j.status === 'queued').length,
           },
           origin
         );
+      }
+
+      if (!authorized) {
+        return send(res, 401, { error: 'Token akses tidak valid. Salin token dari jendela terminal server lokal ke Pengaturan lanjutan → Token akses.' }, origin);
       }
 
       if (!engine.ytdlp && url.pathname !== '/open-folder') {
@@ -636,7 +694,11 @@ export const createServer = () =>
         const body = await readBody(req);
         const target = validateUrl(body.url);
         if (!target) return send(res, 400, { error: 'URL tidak valid' }, origin);
-        return send(res, 200, await fetchInfo(target), origin);
+        try {
+          return send(res, 200, await fetchInfo(target), origin);
+        } catch (e) {
+          throw httpError(422, e instanceof Error ? e.message.slice(0, 300) : 'Gagal mengambil info video');
+        }
       }
 
       if (req.method === 'POST' && url.pathname === '/download') {
@@ -673,7 +735,9 @@ export const createServer = () =>
 
       return send(res, 404, { error: 'Endpoint tidak ditemukan' }, origin);
     } catch (e) {
-      return send(res, 500, { error: e instanceof Error ? e.message : 'Kesalahan server' }, origin);
+      const status = Number(e?.status) || 500;
+      if (status >= 500) console.error('[server]', e);
+      return send(res, status, { error: status >= 500 ? 'Kesalahan server internal' : e.message }, origin);
     }
   });
 
@@ -681,7 +745,8 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 
 if (isMain) {
   await detectEngine();
-  const server = createServer();
+  const token = loadToken();
+  const server = createServer({ token });
   server.on('error', e => {
     if (e.code === 'EADDRINUSE') console.error(`✖ Port ${PORT} sudah dipakai. Jalankan dengan PORT=xxxxx.`);
     else console.error(e);
@@ -692,7 +757,9 @@ if (isMain) {
     console.log(`  ➜ http://${HOST}:${PORT}`);
     console.log(`  yt-dlp : ${engine.ytdlpVersion ?? '✖ tidak ditemukan (https://github.com/yt-dlp/yt-dlp#installation)'}`);
     console.log(`  ffmpeg : ${engine.ffmpegVersion ?? '✖ tidak ditemukan — MP3 & resolusi >720p tidak tersedia'}`);
-    console.log(`  Folder : ${DOWNLOAD_DIR}\n`);
+    console.log(`  Folder : ${DOWNLOAD_DIR}`);
+    console.log(`  Token  : ${token}`);
+    console.log('           Tempel token ini di aplikasi: Video Downloader → Perangkat ini → Pengaturan lanjutan (sekali saja).\n');
     console.log('  Biarkan jendela ini terbuka selama mengunduh. Tekan Ctrl+C untuk berhenti.\n');
   });
 }

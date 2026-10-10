@@ -78,8 +78,10 @@ Browser tidak boleh menjalankan program di komputer, jadi aplikasi memakai serve
    - Linux: `sudo apt install ffmpeg nodejs && pipx install yt-dlp`
 2. Jalankan server: `npm run downloader` dari folder repo, atau unduh `yt-analyzer-downloader.mjs`
    dari halaman **Video Downloader → Perangkat ini** lalu `node yt-analyzer-downloader.mjs`.
-3. Buka **Video Downloader** — status berubah menjadi *Mesin lokal terhubung*. Menu ⋮ di kartu video
-   dan tombol *Unduh* di pratinjau kini menyimpan langsung ke perangkat.
+3. Salin **token akses** yang dicetak di terminal (baris `Token`) ke **Video Downloader → Perangkat ini →
+   Pengaturan lanjutan → Token akses** (sekali saja per browser).
+4. Status berubah menjadi *Mesin lokal terhubung*. Menu ⋮ di kartu video dan tombol *Unduh* di pratinjau
+   kini menyimpan langsung ke perangkat.
 
 File tersimpan di `~/Downloads/YT Analyzer` (tidak pernah menimpa file yang sudah ada).
 
@@ -93,11 +95,13 @@ file otomatis dikonversi ke H.264/AAC dengan ffmpeg. Pengguna server v1.0.0 akan
 | `PORT` | `17890` | Port lokal (ubah juga di *Pengaturan lanjutan* halaman Downloader) |
 | `DOWNLOAD_DIR` | `~/Downloads/YT Analyzer` | Folder tujuan |
 | `YTDLP_PATH` / `FFMPEG_PATH` | dari `PATH` | Lokasi mesin bila tidak ada di `PATH` |
-| `ALLOWED_ORIGINS` | domain Vercel proyek + localhost | Origin tambahan (dipisah koma) bila aplikasi di-host di domain lain |
+| `ALLOWED_ORIGINS` | domain Vercel proyek + localhost | Origin tambahan (dipisah koma) bila aplikasi di-host di domain lain / preview deployment |
+| `AUTH_TOKEN` | dibuat otomatis | Token akses tetap; default dibuat sekali dan disimpan di `~/.yt-analyzer-downloader-token` |
 | `MAX_CONCURRENT` | `2` | Unduhan paralel |
 
-Keamanan: server hanya mendengarkan di `127.0.0.1`, menolak origin & Host yang tidak dikenal, hanya menerima
-URL `http(s)`, dan menjalankan yt-dlp tanpa shell. Chrome/Edge dapat meminta izin *akses jaringan lokal* — pilih
+Keamanan: server hanya mendengarkan di `127.0.0.1`, mewajibkan token akses (`Authorization: Bearer …`) untuk semua
+endpoint selain `/health`, menolak origin & Host yang tidak dikenal (tanpa wildcard), hanya menerima URL `http(s)` ke
+host publik (alamat loopback/LAN/link-local ditolak), dan menjalankan yt-dlp tanpa shell. Chrome/Edge dapat meminta izin *akses jaringan lokal* — pilih
 Izinkan. Safari memblokir akses ke `http://127.0.0.1` dari situs HTTPS; gunakan browser lain atau jalankan aplikasi
 secara lokal (`npm run dev`).
 

@@ -6,6 +6,8 @@ import {
   validateUrl,
   isOriginAllowed,
   isHostAllowed,
+  isPublicHostname,
+  isTokenValid,
   parseAllowedOrigins,
   summarizeInfo,
   uniqueTarget,
@@ -22,10 +24,39 @@ describe('local downloader: validation', () => {
     expect(validateUrl(42)).toBeNull();
   });
 
+  it('rejects loopback, LAN and link-local targets (SSRF)', () => {
+    expect(validateUrl('http://127.0.0.1:17890/jobs')).toBeNull();
+    expect(validateUrl('http://localhost:8080/')).toBeNull();
+    expect(validateUrl('http://192.168.1.1/admin')).toBeNull();
+    expect(validateUrl('http://10.0.0.5/x')).toBeNull();
+    expect(validateUrl('http://172.20.0.1/x')).toBeNull();
+    expect(validateUrl('http://169.254.169.254/latest/meta-data')).toBeNull();
+    expect(validateUrl('http://2130706433/')).toBeNull(); // 127.0.0.1 dalam bentuk desimal
+    expect(validateUrl('http://[::1]/')).toBeNull();
+    expect(validateUrl('http://nas.local/video.mp4')).toBeNull();
+    expect(validateUrl('http://router/')).toBeNull();
+    expect(validateUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBeTruthy();
+    expect(validateUrl('https://vimeo.com/1')).toBeTruthy();
+    expect(isPublicHostname('8.8.8.8')).toBe(true);
+    expect(isPublicHostname('100.100.0.1')).toBe(false); // CGNAT
+  });
+
+  it('requires a matching bearer token', () => {
+    expect(isTokenValid('Bearer abc', 'abc')).toBe(true);
+    expect(isTokenValid('bearer abc', 'abc')).toBe(true);
+    expect(isTokenValid('Bearer abd', 'abc')).toBe(false);
+    expect(isTokenValid('Bearer ab', 'abc')).toBe(false);
+    expect(isTokenValid('abc', 'abc')).toBe(false);
+    expect(isTokenValid(undefined, 'abc')).toBe(false);
+    expect(isTokenValid('Bearer ', '')).toBe(false);
+  });
+
   it('allows the app origins and rejects others', () => {
     const allowed = parseAllowedOrigins('https://my.site/');
     expect(isOriginAllowed('https://youtube-analytics-eta.vercel.app', allowed)).toBe(true);
-    expect(isOriginAllowed('https://youtube-analytics-abc123-team.vercel.app', allowed)).toBe(true);
+    // Tidak ada wildcard: deployment Vercel lain dengan nama mirip harus ditolak
+    expect(isOriginAllowed('https://youtube-analytics-abc123-team.vercel.app', allowed)).toBe(false);
+    expect(isOriginAllowed('https://youtube-analytics-evil.vercel.app', allowed)).toBe(false);
     expect(isOriginAllowed('https://my.site', allowed)).toBe(true);
     expect(isOriginAllowed('https://evil.example', allowed)).toBe(false);
     expect(isOriginAllowed(undefined, allowed)).toBe(true);
@@ -35,6 +66,8 @@ describe('local downloader: validation', () => {
     expect(isHostAllowed('127.0.0.1:17890')).toBe(true);
     expect(isHostAllowed('localhost:17890')).toBe(true);
     expect(isHostAllowed('evil.example:17890')).toBe(false);
+    expect(isHostAllowed('localhost.evil.example')).toBe(false);
+    expect(isHostAllowed('')).toBe(false);
   });
 });
 

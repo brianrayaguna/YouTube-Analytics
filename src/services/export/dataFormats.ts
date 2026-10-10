@@ -71,8 +71,10 @@ export const buildJson = (report: Report, thumbs: Map<string, ThumbImage> | null
 
 const csvCell = (value: unknown): string => {
   if (value === null || value === undefined) return '';
-  const str = String(value);
-  return /[",\n\r;]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  let str = String(value);
+  // Cegah CSV/formula injection: sel yang diawali = + - @ atau tab/CR dieksekusi sebagai rumus oleh Excel
+  if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
+  return /[",\n\r;']/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
 
 export const buildCsv = (report: Report): Blob => {
