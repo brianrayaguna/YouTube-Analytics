@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseYouTubeQuery, classifyQuery, markOutliers } from '../services/youtubeService';
 import { applyFilters, DEFAULT_FILTERS, countActiveFilters } from '../lib/filters';
-import { formatNumber, formatDuration, timeAgo } from '../lib/format';
+import { formatNumber, formatDuration, timeAgo, safeFileName } from '../lib/format';
 import { extractYouTubeVideoId, DOWNLOADER_SERVICES } from '../constants/downloaders';
 import { calculateAllVideoScores } from '../services/performanceScoreService';
 import { analyzeContentGap } from '../services/contentGapService';
@@ -70,6 +70,15 @@ describe('format helpers', () => {
   it('renders relative time in Indonesian', () => {
     expect(timeAgo(Date.now() - 3 * 86400000)).toBe('3 hari yang lalu');
     expect(timeAgo(Date.now() - 14 * 86400000)).toBe('2 minggu yang lalu');
+  });
+  it('produces Windows-safe file names', () => {
+    expect(safeFileName('a/b:c*d?e"f<g>h|i')).toBe('a_b_c_d_e_f_g_h_i');
+    expect(safeFileName('judul...')).toBe('judul');
+    expect(safeFileName('CON')).toBe('_CON');
+    expect(safeFileName('nul.mp4')).toBe('_nul.mp4');
+    expect(safeFileName('   ')).toBe('file');
+    expect(safeFileName('x\u0000y\u001fz')).toBe('x_y_z');
+    expect(safeFileName('Normal 123')).toBe('Normal 123');
   });
 });
 

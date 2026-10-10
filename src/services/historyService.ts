@@ -27,12 +27,20 @@ const write = (items: SearchHistoryItem[]) => {
 export const getSearchHistory = (): SearchHistoryItem[] => {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.filter((it): it is SearchHistoryItem => !!it && typeof it === 'object' && typeof (it as SearchHistoryItem).query === 'string')
+        : [];
+    }
     // Migrasi dari format lama (array string)
     const legacy = localStorage.getItem(LEGACY_KEY);
     if (legacy) {
       const now = Date.now();
-      const migrated: SearchHistoryItem[] = (JSON.parse(legacy) as string[]).map((q, i) => ({
+      const legacyList: unknown = JSON.parse(legacy);
+      const migrated: SearchHistoryItem[] = (Array.isArray(legacyList) ? legacyList : [])
+        .filter((q): q is string => typeof q === 'string')
+        .map((q, i) => ({
         query: q,
         timestamp: now - i * 1000,
         type: q.startsWith('@') || q.includes('youtube.com/') ? 'channel' : 'keyword',

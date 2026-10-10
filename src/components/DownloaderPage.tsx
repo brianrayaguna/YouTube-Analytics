@@ -30,6 +30,8 @@ import {
   cancelOrRemoveLocalJob,
   openLocalFolder,
   getLocalDownloaderUrl,
+  getLocalDownloaderToken,
+  setLocalDownloaderToken,
   setLocalDownloaderUrl,
   isJobActive,
   formatBytes,
@@ -231,6 +233,26 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
   );
 };
 
+const TokenField: React.FC<{ value: string; onChange: (v: string) => void; onSave: () => void }> = ({ value, onChange, onSave }) => (
+  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+    <label className="flex-1 text-sm">
+      <span className="text-muted-foreground">Token akses</span>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        className="yt-input mt-1 font-mono"
+        placeholder="Tempel token dari jendela terminal server"
+      />
+    </label>
+    <button type="button" className="yt-pill" onClick={onSave}>
+      Simpan
+    </button>
+  </div>
+);
+
 const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
   const { health, checking, refresh, jobs, refreshJobs, enabled, setEnabled } = useLocalDownloader({ pollJobs: true });
   const [videoUrl, setVideoUrl] = useState('');
@@ -240,10 +262,17 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
   const [infoLoading, setInfoLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [serverUrl, setServerUrl] = useState(getLocalDownloaderUrl);
+  const [token, setToken] = useState(getLocalDownloaderToken);
 
   const url = normalizeVideoUrl(videoUrl);
   const connected = !!health;
-  const ready = !!health?.ytdlp;
+  const needsToken = !!health && health.authorized === false;
+  const ready = !!health?.ytdlp && !needsToken;
+
+  const saveToken = () => {
+    setLocalDownloaderToken(token);
+    onToast(token.trim() ? 'Token akses disimpan' : 'Token akses dihapus', 'success');
+  };
   const hasFfmpeg = !!health?.ffmpeg;
 
   // Ambil info video (judul, resolusi tersedia) setelah URL berhenti diketik
@@ -305,14 +334,24 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
           </span>
           <div className="min-w-0">
             <p className="font-medium text-foreground">
-              {ready ? 'Mesin lokal terhubung' : connected ? 'Server terhubung, yt-dlp belum terpasang' : checking ? 'Mencari mesin lokal…' : 'Mesin lokal belum terhubung'}
+              {ready
+                ? 'Mesin lokal terhubung'
+                : needsToken
+                  ? 'Server terhubung — perlu token akses'
+                  : connected
+                    ? 'Server terhubung, yt-dlp belum terpasang'
+                    : checking
+                      ? 'Mencari mesin lokal…'
+                      : 'Mesin lokal belum terhubung'}
             </p>
             {connected ? (
               <p className="mt-0.5 text-sm text-muted-foreground">
                 yt-dlp {health.ytdlp ?? '✖'} • ffmpeg {hasFfmpeg ? '✓' : '✖ (MP3, >720p & konversi H.264 tidak tersedia)'} • server v{health.version}
-                <span className="block truncate" title={health.downloadDir}>
-                  Folder: {health.downloadDir}
-                </span>
+                {health.downloadDir && (
+                  <span className="block truncate" title={health.downloadDir}>
+                    Folder: {health.downloadDir}
+                  </span>
+                )}
               </p>
             ) : (
               <p className="mt-0.5 text-sm text-muted-foreground">
@@ -332,6 +371,19 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
           </button>
         </div>
       </div>
+
+      {needsToken && (
+        <div className="yt-card border-warning/40 p-4 sm:px-6">
+          <p className="font-medium text-foreground">Masukkan token akses</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Server lokal v{health.version} hanya melayani aplikasi yang mengirim token, agar situs lain tidak bisa memakai downloader di
+            komputer Anda. Token dicetak di jendela terminal tempat server dijalankan (baris <code className="font-mono">Token</code>).
+          </p>
+          <div className="mt-3">
+            <TokenField value={token} onChange={setToken} onSave={saveToken} />
+          </div>
+        </div>
+      )}
 
       {connected && isServerOutdated(health.version) && (
         <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center">
@@ -449,7 +501,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
         </>
       )}
 
-      {!ready && (
+      {!ready && !needsToken && (
         <SectionCard title="Pasang mesin lokal (sekali saja)" description="Butuh Node.js 18+ dan yt-dlp. ffmpeg disarankan untuk MP3 & resolusi tinggi.">
           <ol className="space-y-5 text-sm">
             <li>
@@ -505,6 +557,12 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           Ubah bila server dijalankan dengan <code className="font-mono">PORT=…</code>. Folder tujuan diatur lewat <code className="font-mono">DOWNLOAD_DIR=…</code>.
+        </p>
+        <div className="mt-4">
+          <TokenField value={token} onChange={setToken} onSave={saveToken} />
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Token dicetak server saat start dan disimpan hanya di browser ini. Tetapkan sendiri lewat <code className="font-mono">AUTH_TOKEN=…</code>.
         </p>
       </details>
     </div>

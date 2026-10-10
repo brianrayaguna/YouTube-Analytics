@@ -68,5 +68,15 @@ export const median = (values: number[]): number => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
-export const safeFileName = (name: string, max = 100): string =>
-  name.replace(/[\\/:*?"<>|\n\r\t]/g, '_').substring(0, max).trim() || 'file';
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+export const safeFileName = (name: string, max = 100): string => {
+  const cleaned = name
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '_')
+    .substring(0, max)
+    .trim()
+    .replace(/[. ]+$/, '');
+  if (!cleaned) return 'file';
+  return WINDOWS_RESERVED.test(cleaned) ? `_${cleaned}` : cleaned;
+};

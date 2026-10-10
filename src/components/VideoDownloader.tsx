@@ -53,7 +53,7 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({ videoUrl, videoTitle,
     };
   }, [isOpen]);
 
-  const localReady = !!health?.ytdlp;
+  const localReady = !!health?.ytdlp && health.authorized !== false;
 
   return (
     <AnimatePresence>

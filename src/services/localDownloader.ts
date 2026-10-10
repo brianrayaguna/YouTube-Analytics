@@ -24,7 +24,9 @@ export interface LocalHealth {
   ytdlp: string | null;
   ffmpeg: string | null;
   ffprobe?: boolean;
-  downloadDir: string;
+  /** false = server meminta token akses yang belum/salah dikirim */
+  authorized?: boolean;
+  downloadDir?: string;
   platform: string;
   active: number;
   queued: number;
@@ -66,6 +68,7 @@ export interface LocalVideoInfo {
 
 const URL_KEY = 'yt_local_dl_url';
 const ENABLED_KEY = 'yt_local_dl_enabled';
+const TOKEN_KEY = 'yt_local_dl_token';
 export const DEFAULT_LOCAL_URL = 'http://127.0.0.1:17890';
 const EVENT = 'localDownloaderChanged';
 
@@ -82,6 +85,27 @@ export const setLocalDownloaderUrl = (url: string) => {
     const clean = url.trim().replace(/\/+$/, '');
     if (!clean || clean === DEFAULT_LOCAL_URL) localStorage.removeItem(URL_KEY);
     else localStorage.setItem(URL_KEY, clean);
+  } catch {
+    // abaikan
+  }
+  cachedHealth = null;
+  window.dispatchEvent(new Event(EVENT));
+};
+
+/** Token akses yang dicetak server lokal saat start (lihat terminal). */
+export const getLocalDownloaderToken = (): string => {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
+export const setLocalDownloaderToken = (token: string) => {
+  try {
+    const clean = token.trim();
+    if (clean) localStorage.setItem(TOKEN_KEY, clean);
+    else localStorage.removeItem(TOKEN_KEY);
   } catch {
     // abaikan
   }
@@ -126,12 +150,16 @@ export class LocalDownloaderError extends Error {}
 const request = async <T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? 8000);
+  const token = getLocalDownloaderToken();
   let res: Response;
   try {
     res = await fetch(`${getLocalDownloaderUrl()}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     });
   } catch {
     throw new LocalDownloaderError('Local Downloader tidak terhubung. Jalankan "npm run downloader" di perangkat ini.');
@@ -159,7 +187,7 @@ export const checkLocalDownloader = async (force = false): Promise<LocalHealth |
   return value;
 };
 
-export const isLocalEngineReady = (h: LocalHealth | null): h is LocalHealth => !!h?.ytdlp;
+export const isLocalEngineReady = (h: LocalHealth | null): h is LocalHealth => !!h?.ytdlp && h.authorized !== false;
 
 export const getLocalVideoInfo = (url: string) =>
   request<LocalVideoInfo>('/info', { method: 'POST', body: JSON.stringify({ url }), timeoutMs: 65000 });

@@ -26,7 +26,7 @@ export const useLocalDownloader = ({ pollJobs = false }: { pollJobs?: boolean } 
     setHealth(h);
     setChecking(false);
     // Aktifkan otomatis saat pertama kali terhubung
-    if (h?.ytdlp && !hasLocalDownloaderPreference()) {
+    if (h?.ytdlp && h.authorized !== false && !hasLocalDownloaderPreference()) {
       setLocalDownloaderEnabled(true);
     }
     return h;

@@ -132,7 +132,10 @@ const YouTubeAnalyzer: React.FC = () => {
   const [trendingData, setTrendingData] = useState<AnalyzedData | null>(null);
   const [trendingRegion, setTrendingRegion] = useState(() => readLocal('yt_trending_region', 'ID', raw => raw));
   const [savedVideos, setSavedVideos] = useState<VideoItem[]>(() =>
-    readLocal<VideoItem[]>('yt_saved_videos', []).map(v => withShortsClassification({ ...v, publishedTimeAgo: timeAgo(v.publishedAt) }))
+    readLocal<VideoItem[]>('yt_saved_videos', [], raw => {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((v): v is VideoItem => !!v && typeof v === 'object' && typeof (v as VideoItem).id === 'string') : [];
+    }).map(v => withShortsClassification({ ...v, publishedTimeAgo: timeAgo(v.publishedAt) }))
   );
   const [filters, setFilters] = useState<VideoFilters>(DEFAULT_FILTERS);
   const [fetchLimit, setFetchLimit] = useState<FetchLimit>(() =>
