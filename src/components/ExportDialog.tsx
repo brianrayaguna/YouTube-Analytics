@@ -105,9 +105,9 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
         onOpenChange(o);
       }}
     >
-      <DialogContent className="max-h-[92vh] gap-0 overflow-y-auto rounded-xl border-0 bg-popover p-0 sm:max-w-[640px] sm:rounded-xl">
+      <DialogContent className="max-h-[92vh] gap-0 overflow-y-auto rounded-xl border border-border bg-popover p-0 sm:max-w-[640px] sm:rounded-xl">
         <DialogHeader className="px-6 pb-2 pt-6 text-left">
-          <DialogTitle className="text-xl font-normal">Ekspor data</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">Ekspor data</DialogTitle>
           <DialogDescription>{context.title}</DialogDescription>
         </DialogHeader>
 
@@ -131,13 +131,15 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                     )}
                   >
                     <span className="flex w-full items-center gap-2">
-                      <Icon className={cn('h-5 w-5', active ? 'text-primary' : 'text-foreground')} strokeWidth={1.75} />
+                      <Icon className={cn('h-5 w-5', active ? 'text-primary' : 'text-foreground')} strokeWidth={1.75} aria-hidden="true" />
                       <span className="text-sm font-medium text-foreground">{f.label}</span>
-                      <span className="ml-auto text-[11px] text-muted-foreground">{f.ext}</span>
+                      <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+                        {f.ext}
+                        {active && <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />}
+                      </span>
                     </span>
                     <span className="text-xs leading-4 text-muted-foreground">{f.description}</span>
-                    {f.recommended && <span className="mt-1 rounded-sm bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">Disarankan</span>}
-                    {active && <Check className="absolute right-2 top-2 hidden h-4 w-4 text-primary" />}
+                    {f.recommended && <span className="mt-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">Disarankan</span>}
                   </button>
                 );
               })}
@@ -145,10 +147,10 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
             {format === 'csv' && (
               <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Isi CSV">
                 <span className="text-xs text-muted-foreground">Isi CSV:</span>
-                <button type="button" className="yt-chip" data-active={csvKind === 'videos'} disabled={running} onClick={() => setCsvKind('videos')}>
+                <button type="button" className="yt-chip" aria-pressed={csvKind === 'videos'} data-active={csvKind === 'videos'} disabled={running} onClick={() => setCsvKind('videos')}>
                   Data video (+ hari & jam upload)
                 </button>
-                <button type="button" className="yt-chip" data-active={csvKind === 'schedule'} disabled={running} onClick={() => setCsvKind('schedule')}>
+                <button type="button" className="yt-chip" aria-pressed={csvKind === 'schedule'} data-active={csvKind === 'schedule'} disabled={running} onClick={() => setCsvKind('schedule')}>
                   Jadwal upload
                 </button>
               </div>
@@ -157,11 +159,19 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
 
           <section>
             <h3 className="yt-label mb-2">Data</h3>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Cakupan data ekspor">
               {(['filtered', 'all', 'selected'] as ExportScope[])
                 .filter(s => scopes[s] && (s !== 'selected' || scopes[s]!.length > 0))
                 .map(s => (
-                  <button key={s} type="button" disabled={running} className="yt-chip" data-active={scope === s} onClick={() => setScope(s)}>
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={running}
+                    className="yt-chip"
+                    aria-pressed={scope === s}
+                    data-active={scope === s}
+                    onClick={() => setScope(s)}
+                  >
                     {SCOPE_LABEL[s]} · {formatFullNumber(scopes[s]!.length)}
                   </button>
                 ))}
@@ -172,7 +182,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
           <section>
             <label className={cn('flex items-center justify-between gap-4', !thumbsSupported && 'opacity-50')}>
               <span className="flex items-start gap-3">
-                <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
                 <span className="text-sm">
                   <span className="font-medium text-foreground">Sertakan thumbnail</span>
                   <span className="block text-xs text-muted-foreground">
@@ -190,11 +200,11 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
               <Switch checked={thumbsSupported && withThumbs} onCheckedChange={setWithThumbs} disabled={!thumbsSupported || running} aria-label="Sertakan thumbnail" />
             </label>
             {format === 'zip' && withThumbs && (
-              <div className="ml-8 mt-3 flex flex-wrap gap-2">
-                <button type="button" className="yt-chip" data-active={zipSize === 'maxres'} onClick={() => setZipSize('maxres')} disabled={running}>
+              <div className="ml-8 mt-3 flex flex-wrap gap-2" role="group" aria-label="Resolusi thumbnail ZIP">
+                <button type="button" className="yt-chip" aria-pressed={zipSize === 'maxres'} data-active={zipSize === 'maxres'} onClick={() => setZipSize('maxres')} disabled={running}>
                   HD 1280×720
                 </button>
-                <button type="button" className="yt-chip" data-active={zipSize === 'hq'} onClick={() => setZipSize('hq')} disabled={running}>
+                <button type="button" className="yt-chip" aria-pressed={zipSize === 'hq'} data-active={zipSize === 'hq'} onClick={() => setZipSize('hq')} disabled={running}>
                   Sedang 480×360
                 </button>
               </div>
@@ -223,25 +233,35 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                 <span>{progress.label}</span>
                 <span className="tabular-nums">{progress.percent}%</span>
               </div>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div className="h-full rounded-full bg-youtube-red transition-[width] duration-300" style={{ width: `${progress.percent}%` }} />
+              <div
+                role="progressbar"
+                aria-label={progress.label}
+                aria-valuenow={progress.percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary"
+              >
+                <div
+                  className="h-full w-full origin-left rounded-full bg-primary transition-transform duration-300"
+                  style={{ transform: `scaleX(${progress.percent / 100})` }}
+                />
               </div>
             </div>
           )}
         </div>
 
         <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-border bg-popover px-4 py-3">
-          <span className="pl-2 text-xs text-muted-foreground">{formatFullNumber(videos.length)} video</span>
+          <span className="pl-2 text-xs tabular-nums text-muted-foreground">{formatFullNumber(videos.length)} video</span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => (running ? abortRef.current?.abort() : onOpenChange(false))}
-              className="h-9 rounded-full px-4 text-sm font-medium text-foreground hover:bg-secondary"
+              className="min-h-11 rounded-full px-4 text-sm font-medium text-foreground hover:bg-secondary sm:min-h-9"
             >
               {running ? 'Batalkan' : 'Tutup'}
             </button>
             <button type="button" onClick={start} disabled={running || !videos.length} className="yt-pill-blue min-w-[120px]">
-              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : `Ekspor ${info.label}`}
+              {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Ekspor ${info.label}`}
             </button>
           </div>
         </div>

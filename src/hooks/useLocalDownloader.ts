@@ -55,26 +55,36 @@ export const useLocalDownloader = ({ pollJobs = false }: { pollJobs?: boolean } 
     };
   }, [refresh]);
 
-  // Coba sambung ulang berkala saat belum terhubung
+  // Periksa ulang saat tab kembali aktif ketika mesin belum terhubung (hindari polling gagal terus-menerus)
   useEffect(() => {
     if (health || !pollJobs) return;
-    const t = setInterval(() => refresh(true), 5000);
-    return () => clearInterval(t);
+    const onVisibility = () => {
+      if (!document.hidden) refresh(true);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [health, pollJobs, refresh]);
 
   useEffect(() => {
     if (!pollJobs || !health) return;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     const tick = async () => {
+      if (stopped || document.hidden) return;
       const list = await refreshJobs();
       if (stopped) return;
       timer = setTimeout(tick, list.some(isJobActive) ? 1000 : 4000);
     };
+    const onVisibility = () => {
+      clearTimeout(timer);
+      if (!document.hidden && !stopped) tick();
+    };
     tick();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [pollJobs, health, refreshJobs]);
 

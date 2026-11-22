@@ -17,6 +17,8 @@ import {
   Loader2,
   Copy,
   FileCode2,
+  ChevronDown,
+  ShieldCheck,
 } from 'lucide-react';
 import serverSource from '../../local-downloader/server.mjs?raw';
 import { ShowToast } from '../types';
@@ -101,10 +103,11 @@ const UrlInput: React.FC<{ value: string; onChange: (v: string) => void; onToast
           onToast('Izin papan klip ditolak — tempel manual dengan Ctrl+V', 'error');
         }
       }}
-      className="yt-pill h-10 bg-transparent"
+      className="yt-pill min-h-10 bg-transparent"
       title="Tempel dari papan klip"
+      aria-label="Tempel URL dari papan klip"
     >
-      <ClipboardPaste className="h-5 w-5" strokeWidth={1.75} /> <span className="hidden sm:inline">Tempel</span>
+      <ClipboardPaste className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" /> <span className="hidden sm:inline">Tempel</span>
     </button>
   </div>
 );
@@ -112,11 +115,14 @@ const UrlInput: React.FC<{ value: string; onChange: (v: string) => void; onToast
 const CodeLine: React.FC<{ label?: string; cmd: string; onToast: ShowToast }> = ({ label, cmd, onToast }) => (
   <div className="flex items-center gap-2 rounded-lg bg-secondary py-1 pl-3 pr-1">
     {label && <span className="w-16 shrink-0 text-xs text-muted-foreground">{label}</span>}
-    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-foreground no-scrollbar">{cmd}</code>
+    <div className="relative min-w-0 flex-1">
+      <code className="block overflow-x-auto whitespace-nowrap pr-6 font-mono text-xs text-foreground no-scrollbar">{cmd}</code>
+      <span className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-secondary to-transparent" aria-hidden="true" />
+    </div>
     <button
       type="button"
-      className="yt-icon-btn h-8 w-8"
-      aria-label="Salin perintah"
+      className="yt-icon-btn h-9 w-9 shrink-0"
+      aria-label={`Salin perintah ${label ?? ''}`.trim()}
       title="Salin"
       onClick={async () => {
         try {
@@ -127,7 +133,7 @@ const CodeLine: React.FC<{ label?: string; cmd: string; onToast: ShowToast }> = 
         }
       }}
     >
-      <Copy className="h-4 w-4" />
+      <Copy className="h-4 w-4" aria-hidden="true" />
     </button>
   </div>
 );
@@ -154,7 +160,7 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
   };
 
   return (
-    <li className="flex items-center gap-3 py-3">
+    <li className="flex items-start gap-3 py-3 sm:items-center">
       <span
         className={cn(
           'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
@@ -162,53 +168,57 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
         )}
       >
         {job.status === 'done' ? (
-          <CheckCircle2 className="h-5 w-5" />
+          <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
         ) : job.status === 'error' ? (
-          <CircleAlert className="h-5 w-5" />
+          <CircleAlert className="h-5 w-5" aria-hidden="true" />
         ) : active ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
         ) : job.format === 'mp3' ? (
-          <Music className="h-5 w-5" />
+          <Music className="h-5 w-5" aria-hidden="true" />
         ) : (
-          <Film className="h-5 w-5" />
+          <Film className="h-5 w-5" aria-hidden="true" />
         )}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground" title={job.filename || job.title || job.url}>
           {job.filename || job.title || job.url}
         </p>
-        <div className="mt-1 flex items-center gap-2">
-          <span className="rounded-sm bg-secondary px-1.5 py-px text-[11px] font-medium uppercase text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium uppercase text-muted-foreground">
             {job.format}
             {job.format === 'mp4' && job.quality !== 'best' ? ` ${job.quality}p` : ''}
           </span>
           {job.status === 'done' && codecLabel(job) && (
             <span
-              className="rounded-sm bg-success/15 px-1.5 py-px text-[11px] font-medium text-success"
+              className="rounded bg-success/15 px-1.5 py-0.5 text-[11px] font-medium text-success"
               title={job.conversion ? 'Dikonversi otomatis agar bisa diputar di semua pemutar' : 'Codec yang kompatibel dengan semua pemutar'}
             >
               {codecLabel(job)}
               {job.conversion ? ' • dikonversi' : ''}
             </span>
           )}
-          <span
-            className={cn('min-w-0 text-xs', job.status === 'error' ? 'line-clamp-2 text-destructive' : 'text-muted-foreground')}
-            title={job.error ?? undefined}
-          >
+          <span className={cn('min-w-0 break-words text-xs tabular-nums', job.status === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
             {job.status === 'error' ? job.error : STATUS_LABEL[job.status]}
             {(job.status === 'downloading' || job.status === 'converting') && job.percent !== null ? ` ${Math.round(pct)}%` : ''}
             {detail && ` • ${detail}`}
           </span>
         </div>
         {active && (
-          <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary">
+          <div
+            role="progressbar"
+            aria-label={STATUS_LABEL[job.status]}
+            aria-valuenow={Math.round(pct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary"
+          >
             <div
               className={cn(
-                'h-full rounded-full transition-[width] duration-500',
-                job.status === 'converting' ? 'bg-primary' : 'bg-youtube-red',
+                'h-full w-full origin-left rounded-full transition-transform duration-300',
+                job.status === 'converting' ? 'bg-primary' : 'bg-outlier',
                 job.status !== 'downloading' && job.status !== 'converting' && 'animate-pulse'
               )}
-              style={{ width: `${job.status === 'downloading' || job.status === 'converting' ? pct : 100}%` }}
+              style={{ transform: `scaleX(${(job.status === 'downloading' || job.status === 'converting' ? pct : 100) / 100})` }}
             />
           </div>
         )}
@@ -222,7 +232,7 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
         type="button"
         className="yt-icon-btn"
         title={active ? 'Batalkan' : 'Hapus dari daftar'}
-        aria-label={active ? 'Batalkan' : 'Hapus dari daftar'}
+        aria-label={active ? 'Batalkan unduhan' : 'Hapus dari daftar'}
         onClick={() => act(() => cancelOrRemoveLocalJob(job.id))}
       >
         {active ? <X className="h-5 w-5" strokeWidth={1.75} /> : <Trash2 className="h-5 w-5" strokeWidth={1.75} />}
@@ -246,7 +256,6 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
   const ready = !!health?.ytdlp;
   const hasFfmpeg = !!health?.ffmpeg;
 
-  // Ambil info video (judul, resolusi tersedia) setelah URL berhenti diketik
   useEffect(() => {
     setInfo(null);
     if (!ready || !url) return;
@@ -291,7 +300,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
   );
 
   return (
-    <div className="space-y-6">
+    <div id="downloader-panel-local" role="tabpanel" aria-labelledby="downloader-tab-local" className="space-y-6">
       {/* Status mesin */}
       <div className={cn('yt-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5', ready && 'border-success/40')}>
         <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -301,7 +310,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               ready ? 'bg-success/15 text-success' : connected ? 'bg-warning/15 text-warning' : 'bg-secondary text-muted-foreground'
             )}
           >
-            {checking && !connected ? <Loader2 className="h-6 w-6 animate-spin" /> : <HardDrive className="h-6 w-6" strokeWidth={1.75} />}
+            {checking && !connected ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> : <HardDrive className="h-6 w-6" strokeWidth={1.75} aria-hidden="true" />}
           </span>
           <div className="min-w-0">
             <p className="font-medium text-foreground">
@@ -316,7 +325,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               </p>
             ) : (
               <p className="mt-0.5 text-sm text-muted-foreground">
-                Video diunduh langsung oleh yt-dlp di komputer Anda — tanpa situs pihak ketiga. Ikuti langkah di bawah sekali saja.
+                Video diunduh langsung oleh yt-dlp di komputer Anda — tanpa situs pihak ketiga. Ikuti langkah di bawah sekali saja, lalu klik Cek ulang.
               </p>
             )}
           </div>
@@ -324,18 +333,18 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {connected && (
             <button type="button" className="yt-pill" onClick={() => openLocalFolder().catch(e => onToast(e.message, 'error'))}>
-              <FolderOpen className="h-5 w-5" strokeWidth={1.75} /> Buka folder
+              <FolderOpen className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" /> Buka folder
             </button>
           )}
           <button type="button" className="yt-pill" onClick={() => refresh(true)} disabled={checking}>
-            <RefreshCw className={cn('h-4 w-4', checking && 'animate-spin')} /> Cek ulang
+            <RefreshCw className={cn('h-4 w-4', checking && 'animate-spin')} aria-hidden="true" /> Cek ulang
           </button>
         </div>
       </div>
 
       {connected && isServerOutdated(health.version) && (
         <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center">
-          <CircleAlert className="h-5 w-5 shrink-0 text-warning" />
+          <CircleAlert className="h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
           <p className="flex-1 text-sm text-foreground">
             Server lokal Anda versi lama ({health.version ?? '?'}). Versi itu bisa menyimpan MP4 ber-codec AV1/VP9 yang{' '}
             <b className="font-medium">tidak bisa dibuka</b> di banyak pemutar. Unduh server v{MIN_SERVER_VERSION}, hentikan server lama (Ctrl+C), lalu jalankan
@@ -346,7 +355,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
             className="yt-pill-primary shrink-0"
             onClick={() => downloadBlob(new Blob([serverSource], { type: 'text/javascript' }), SERVER_FILENAME)}
           >
-            <FileCode2 className="h-4 w-4" /> Unduh server terbaru
+            <FileCode2 className="h-4 w-4" aria-hidden="true" /> Unduh server terbaru
           </button>
         </div>
       )}
@@ -390,23 +399,24 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               )}
 
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="yt-chip" data-active={format === 'mp4'} onClick={() => setFormat('mp4')}>
-                  <Film className="h-4 w-4" /> Video MP4
+                <button type="button" className="yt-chip" aria-pressed={format === 'mp4'} data-active={format === 'mp4'} onClick={() => setFormat('mp4')}>
+                  <Film className="h-4 w-4" aria-hidden="true" /> Video MP4
                 </button>
                 <button
                   type="button"
                   className="yt-chip"
+                  aria-pressed={format === 'mp3'}
                   data-active={format === 'mp3'}
                   onClick={() => setFormat('mp3')}
                   title={hasFfmpeg ? undefined : 'Tanpa ffmpeg audio disimpan dalam format aslinya (m4a/webm)'}
                 >
-                  <Music className="h-4 w-4" /> Audio {hasFfmpeg ? 'MP3' : 'M4A'}
+                  <Music className="h-4 w-4" aria-hidden="true" /> Audio {hasFfmpeg ? 'MP3' : 'M4A'}
                 </button>
                 {format === 'mp4' && (
                   <select
                     value={quality}
                     onChange={e => setQuality(e.target.value as LocalQuality)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 text-sm font-medium text-foreground outline-none"
+                    className="min-h-11 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:min-h-9"
                     aria-label="Kualitas video"
                   >
                     {availableQualities.map(q => (
@@ -416,8 +426,8 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
                     ))}
                   </select>
                 )}
-                <button type="submit" disabled={!url || submitting} className="yt-pill-primary ml-auto h-10 px-5">
-                  {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />} Unduh ke perangkat
+                <button type="submit" disabled={!url || submitting} className="yt-pill-primary ml-auto min-h-11 px-5 sm:min-h-10">
+                  {submitting ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : <Download className="h-5 w-5" aria-hidden="true" />} Unduh ke perangkat
                 </button>
               </div>
               {!hasFfmpeg && format === 'mp4' && (
@@ -462,31 +472,40 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
             </li>
             <li>
               <p className="font-medium text-foreground">2. Unduh server penghubung</p>
-              <p className="mt-1 text-muted-foreground">Satu file kecil tanpa dependensi. Atau, dari folder repo ini jalankan <code className="font-mono">npm run downloader</code>.</p>
+              <p className="mt-1 text-muted-foreground">
+                Satu file kecil tanpa dependensi. Atau, dari folder repo ini jalankan <code className="font-mono">npm run downloader</code>.
+              </p>
               <button
                 type="button"
                 className="yt-pill mt-2"
                 onClick={() => downloadBlob(new Blob([serverSource], { type: 'text/javascript' }), SERVER_FILENAME)}
               >
-                <FileCode2 className="h-5 w-5" strokeWidth={1.75} /> Unduh {SERVER_FILENAME}
+                <FileCode2 className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" /> Unduh {SERVER_FILENAME}
               </button>
             </li>
             <li>
-              <p className="font-medium text-foreground">3. Jalankan, lalu biarkan jendela terminal terbuka</p>
+              <p className="font-medium text-foreground">3. Jalankan, lalu klik “Cek ulang”</p>
               <div className="mt-2">
                 <CodeLine cmd={`node ${SERVER_FILENAME}`} onToast={onToast} />
               </div>
               <p className="mt-2 text-muted-foreground">
-                Halaman ini akan terhubung otomatis. Bila browser meminta izin <b className="font-medium text-foreground">akses jaringan lokal</b>, pilih Izinkan.
-                Safari memblokir koneksi ini dari situs HTTPS — gunakan Chrome, Edge, atau Firefox.
+                Bila browser meminta izin <b className="font-medium text-foreground">akses jaringan lokal</b>, pilih Izinkan.
+                Safari memblokir koneksi loopback dari situs HTTPS — gunakan browser berbasis Chromium atau Firefox.
               </p>
             </li>
           </ol>
+          <p className="mt-4 flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+            <span>Privasi: server lokal hanya mendengarkan alamat loopback <code className="font-mono">127.0.0.1</code> di perangkat Anda dan tidak mengirim data ke server eksternal.</span>
+          </p>
         </SectionCard>
       )}
 
       <details className="yt-card group p-4 sm:px-6">
-        <summary className="cursor-pointer select-none text-sm font-medium text-foreground">Pengaturan lanjutan</summary>
+        <summary className="flex cursor-pointer list-none select-none items-center justify-between text-sm font-medium text-foreground">
+          <span>Pengaturan lanjutan</span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className="flex-1 text-sm">
             <span className="text-muted-foreground">Alamat server lokal</span>
@@ -520,7 +539,7 @@ const OnlineTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
   const unsupported = !!url && service.youtubeOnly && !isYouTubeUrl(url);
 
   return (
-    <div className="yt-card p-4 sm:p-6">
+    <div id="downloader-panel-online" role="tabpanel" aria-labelledby="downloader-tab-online" className="yt-card p-4 sm:p-6">
       <form
         className="flex flex-col gap-3 sm:flex-row"
         onSubmit={e => {
@@ -530,8 +549,8 @@ const OnlineTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
         }}
       >
         <UrlInput value={videoUrl} onChange={setVideoUrl} onToast={onToast} />
-        <button type="submit" disabled={!url} className="yt-pill-primary h-12 px-6 text-base">
-          <ExternalLink className="h-5 w-5" /> Buka
+        <button type="submit" disabled={!url} className="yt-pill-primary min-h-12 px-6 text-base">
+          <ExternalLink className="h-5 w-5" aria-hidden="true" /> Buka
         </button>
       </form>
 
@@ -564,27 +583,29 @@ const OnlineTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-x-2 text-sm font-medium text-foreground">
                   {s.name}
-                  {s.youtubeOnly && <span className="rounded-sm bg-secondary px-1.5 py-px text-[11px] text-muted-foreground">YouTube saja</span>}
+                  {s.youtubeOnly && <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">YouTube saja</span>}
                 </span>
                 <span className="block text-xs text-muted-foreground">{s.description}</span>
               </span>
             </button>
-            <a href={s.homepage} target="_blank" rel="noopener noreferrer" className="yt-icon-btn h-8 w-8" aria-label={`Buka ${s.name}`} title={`Buka ${s.name}`}>
-              <ExternalLink className="h-4 w-4" />
+            <a href={s.homepage} target="_blank" rel="noopener noreferrer" className="yt-icon-btn h-9 w-9" aria-label={`Buka ${s.name}`} title={`Buka ${s.name}`}>
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
             </a>
           </div>
         ))}
       </div>
       {unsupported && <p className="mt-3 text-sm text-warning">{service.name} hanya mendukung YouTube — halaman utamanya akan dibuka.</p>}
       <p className="mt-4 flex gap-2 text-xs leading-5 text-muted-foreground">
-        <Info className="mt-0.5 h-4 w-4 shrink-0" /> Dibuka di tab baru melalui layanan pihak ketiga.
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Dibuka di tab baru melalui layanan pihak ketiga.
       </p>
     </div>
   );
 };
 
 const DownloaderPage: React.FC<DownloaderPageProps> = ({ onToast }) => {
-  const [tab, setTab] = useState<Tab>('local');
+  const [tab, setTab] = useState<Tab>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches ? 'online' : 'local'
+  );
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -596,10 +617,12 @@ const DownloaderPage: React.FC<DownloaderPageProps> = ({ onToast }) => {
         ]}
         value={tab}
         onChange={setTab}
+        label="Metode unduhan video"
+        idPrefix="downloader"
       />
       {tab === 'local' ? <LocalTab onToast={onToast} /> : <OnlineTab onToast={onToast} />}
       <p className="mt-6 flex gap-2 text-xs leading-5 text-muted-foreground">
-        <Globe className="mt-0.5 h-4 w-4 shrink-0" />
+        <Globe className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         Unduh hanya untuk penggunaan pribadi dan hormati hak cipta kreator serta Ketentuan Layanan YouTube.
       </p>
     </div>

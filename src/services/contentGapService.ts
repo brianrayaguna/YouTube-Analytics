@@ -1,6 +1,7 @@
 // Content Gap Analysis Service
 
 import { VideoItem } from '../types';
+import { formatNumber } from '../lib/format';
 
 export interface ContentGapResult {
   missingTopics: Array<{
@@ -78,11 +79,7 @@ const calculateTopicPotential = (topic: string, trendingVideos: VideoItem[]): nu
   return avgViews;
 };
 
-const formatPotentialViews = (views: number): string => {
-  if (views >= 1000000) return `±${(views / 1000000).toFixed(1)}M views`;
-  if (views >= 1000) return `±${(views / 1000).toFixed(0)}K views`;
-  return `±${Math.round(views)} views`;
-};
+const formatPotentialViews = (views: number): string => `±${formatNumber(Math.round(views))} views`;
 
 export const analyzeContentGap = (
   channelVideos: VideoItem[],
@@ -111,71 +108,35 @@ export const analyzeContentGap = (
   const overlapCount = trendingTopics.filter(t => channelTopicsSet.has(t)).length;
   const overlapPercentage = trendingTopics.length ? Math.round((overlapCount / trendingTopics.length) * 100) : 0;
 
-  // Score missing topics by frequency and views
-  const missingTopics = missingTopicsRaw
+  // Score missing topics by frequency and views (hitung potential sekali per topik)
+  const scoredMissing = missingTopicsRaw
     .map(topic => {
       const frequency = trendingTopicsMap.get(topic) || 0;
       const potential = calculateTopicPotential(topic, trendingVideos);
       return {
         topic,
         frequency,
-        trendScore: Math.round((frequency * 10) + (potential / 10000))
+        potential,
+        trendScore: Math.round((frequency * 10) + (potential / 10000)),
       };
     })
     .sort((a, b) => b.trendScore - a.trendScore)
     .slice(0, 15);
 
+  const missingTopics = scoredMissing.map(({ topic, frequency, trendScore }) => ({ topic, frequency, trendScore }));
+
   // Generate recommendations
-  const recommendations = missingTopics.slice(0, 5).map(item => {
-    const potential = calculateTopicPotential(item.topic, trendingVideos);
-    return {
-      topic: item.topic,
-      reason: `Muncul di ${item.frequency} video trending, belum ada di channel ini`,
-      potentialViews: formatPotentialViews(potential)
-    };
-  });
+  const recommendations = scoredMissing.slice(0, 5).map(item => ({
+    topic: item.topic,
+    reason: `Muncul di ${item.frequency} video trending, belum ada di channel ini`,
+    potentialViews: formatPotentialViews(item.potential),
+  }));
 
   return {
     missingTopics,
     channelTopics,
     trendingTopics,
     overlapPercentage,
-    recommendations
+    recommendations,
   };
-};
-
-// Categorize topics into content buckets
-export const categorizeTopics = (topics: string[]): Map<string, string[]> => {
-  const categories = new Map<string, string[]>();
-  
-  const categoryKeywords: Record<string, string[]> = {
-    'Tutorial & How-to': ['tutorial', 'cara', 'how', 'guide', 'tips', 'belajar', 'learn'],
-    'Entertainment': ['funny', 'lucu', 'comedy', 'prank', 'challenge', 'reaction'],
-    'Gaming': ['game', 'gameplay', 'gaming', 'play', 'minecraft', 'mobile legends', 'ff'],
-    'Lifestyle': ['life', 'vlog', 'daily', 'routine', 'day in', 'story'],
-    'Technology': ['tech', 'review', 'unboxing', 'gadget', 'phone', 'laptop'],
-    'Music': ['music', 'song', 'cover', 'lagu', 'karaoke', 'remix'],
-    'Education': ['education', 'learn', 'study', 'school', 'science', 'math'],
-    'News & Current': ['news', 'berita', 'update', 'breaking', 'terbaru']
-  };
-
-  topics.forEach(topic => {
-    let assigned = false;
-    for (const [category, keywords] of Object.entries(categoryKeywords)) {
-      if (keywords.some(kw => topic.includes(kw))) {
-        const existing = categories.get(category) || [];
-        existing.push(topic);
-        categories.set(category, existing);
-        assigned = true;
-        break;
-      }
-    }
-    if (!assigned) {
-      const existing = categories.get('Other') || [];
-      existing.push(topic);
-      categories.set('Other', existing);
-    }
-  });
-
-  return categories;
 };

@@ -124,19 +124,20 @@ export const subscribeLocalDownloader = (cb: () => void) => {
 export class LocalDownloaderError extends Error {}
 
 const request = async <T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? 8000);
+  const { timeoutMs = 8000, ...fetchInit } = init ?? {};
   let res: Response;
   try {
     res = await fetch(`${getLocalDownloaderUrl()}${path}`, {
-      ...init,
-      signal: controller.signal,
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      ...fetchInit,
+      signal:
+        fetchInit.signal ??
+        (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(timeoutMs)
+          : undefined),
+      headers: fetchInit.body ? { 'Content-Type': 'application/json' } : undefined,
     });
   } catch {
     throw new LocalDownloaderError('Local Downloader tidak terhubung. Jalankan "npm run downloader" di perangkat ini.');
-  } finally {
-    clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new LocalDownloaderError(data?.error || `Local Downloader error (HTTP ${res.status})`);

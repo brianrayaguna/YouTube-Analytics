@@ -1,8 +1,7 @@
 /*
-   YT ANALYZER PRO - Design System
-   Mengikuti bahasa visual YouTube (2024+): Roboto, permukaan netral,
-   chip abu-abu, sudut 12px, aksen biru YouTube Studio & merah brand.
-   Semua warna dalam format HSL.
+   YT Analyzer Pro — Design System
+   Palet netral terkalibrasi WCAG AA (terang & gelap), permukaan sidebar terpisah,
+   token status & grade semantik, serta gerak berbasis compositor.
 */
 
 @tailwind base;
@@ -11,96 +10,147 @@
 
 @layer base {
   :root {
-    /* Surface */
-    --background: 0 0% 100%;          /* #FFFFFF */
-    --foreground: 0 0% 6%;            /* #0F0F0F */
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 6%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 6%;
+    color-scheme: light dark;
 
-    /* YouTube Studio blue — link, fokus, state terpilih */
-    --primary: 214 95% 43%;           /* #065FD4 */
+    /* Surface */
+    --background: 0 0% 100%;            /* #FFFFFF */
+    --foreground: 220 18% 8%;           /* #111318 */
+    --card: 0 0% 100%;
+    --card-foreground: 220 18% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 18% 8%;
+
+    /* Primary Studio blue */
+    --primary: 214 95% 42%;             /* #055CD1 — 5.9:1 on white */
     --primary-foreground: 0 0% 100%;
 
-    /* Chip / tombol netral */
-    --secondary: 0 0% 95%;            /* #F2F2F2 */
-    --secondary-foreground: 0 0% 6%;
-    --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 38%;     /* #606060 */
-    --accent: 0 0% 90%;               /* #E5E5E5 (hover) */
-    --accent-foreground: 0 0% 6%;
+    /* Neutral controls */
+    --secondary: 220 14% 95%;           /* #F0F2F5 */
+    --secondary-foreground: 220 18% 8%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 37%;     /* #565C67 — 6.7:1 on white */
+    --accent: 220 13% 89%;              /* #DFE3E8 */
+    --accent-foreground: 220 18% 8%;
 
-    --destructive: 0 100% 40%;        /* #CC0000 */
+    --destructive: 0 92% 40%;           /* #C40A0A — 6.1:1 on white */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;               /* #E5E5E5 */
-    --input: 0 0% 80%;                /* #CCCCCC (search box) */
-    --ring: 214 95% 43%;
+    --border: 220 13% 88%;              /* #DCE0E5 */
+    --input: 220 9% 54%;                /* #7E848E — 3.7:1 on white (WCAG 1.4.11) */
+    --ring: 214 95% 42%;
 
     --radius: 0.5rem;
 
-    /* Brand */
-    --yt-red: 0 100% 50%;             /* #FF0000 */
-    --inverse: 0 0% 6%;               /* chip aktif / snackbar */
-    --inverse-foreground: 0 0% 100%;
+    /* Brand & data roles */
+    --yt-red: 0 92% 45%;
+    --outlier: 174 82% 26%;             /* #0C796E — 5.3:1 on white (colorblind-safe vs blue/red) */
+    --visited: 272 68% 38%;             /* #681DA8 — 9.0:1 on white */
 
-    /* Status */
-    --success: 142 71% 35%;
-    --warning: 36 100% 45%;
-    --info: 214 95% 43%;
+    /* Inverse surface (snackbar, multi-select bar, active chips) */
+    --inverse: 220 18% 10%;             /* #15181E */
+    --inverse-foreground: 0 0% 98%;
+    --inverse-primary: 208 100% 65%;    /* #4DB2FF — 8.2:1 on inverse */
+    --inverse-success: 142 70% 58%;     /* #48DE80 — 10.6:1 on inverse */
+    --inverse-destructive: 0 100% 72%;  /* #FF7070 — 7.0:1 on inverse */
 
-    /* Sidebar */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 0 0% 6%;
-    --sidebar-primary: 0 0% 6%;
+    /* Semantic status (WCAG AA >= 4.5:1 on white & tinted badges) */
+    --success: 145 78% 26%;             /* #0E7638 — 5.7:1 on white, 4.9:1 on tint */
+    --warning: 32 95% 32%;              /* #9F5404 — 5.5:1 on white, 4.7:1 on tint */
+    --info: 214 95% 42%;
+
+    /* Content score grades (WCAG AA >= 4.5:1 on tinted badges) */
+    --grade-a: 148 82% 25%;             /* #0B733C — 5.9:1 */
+    --grade-b: 214 95% 42%;             /* #055CD1 — 5.9:1 */
+    --grade-c: 34 96% 31%;              /* #9B5703 — 5.4:1 */
+    --grade-d: 22 92% 35%;              /* #AC4407 — 5.5:1 */
+    --grade-f: 0 92% 40%;               /* #C40A0A — 6.1:1 */
+
+    /* Recessed sidebar layer */
+    --sidebar-background: 220 16% 97%;  /* #F6F7F9 */
+    --sidebar-foreground: 220 18% 8%;
+    --sidebar-primary: 220 18% 8%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 95%;
-    --sidebar-accent-foreground: 0 0% 6%;
-    --sidebar-border: 0 0% 90%;
-    --sidebar-ring: 214 95% 43%;
+    --sidebar-accent: 220 14% 91%;
+    --sidebar-accent-foreground: 220 18% 8%;
+    --sidebar-border: 220 13% 88%;
+    --sidebar-ring: 214 95% 42%;
+
+    /* Scrollbar (contrast >= 3:1) */
+    --scrollbar-thumb: hsl(220 9% 48%);
+    --scrollbar-track: transparent;
+
+    /* Motion curves */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  :root:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+  }
+
+  :root:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
   }
 
   .dark {
-    --background: 0 0% 6%;            /* #0F0F0F */
-    --foreground: 0 0% 95%;           /* #F1F1F1 */
-    --card: 0 0% 10%;                 /* #1A1A1A */
-    --card-foreground: 0 0% 95%;
-    --popover: 0 0% 16%;              /* #282828 */
-    --popover-foreground: 0 0% 95%;
+    color-scheme: dark;
 
-    --primary: 208 100% 62%;          /* #3EA6FF */
-    --primary-foreground: 0 0% 6%;
+    --background: 220 14% 7%;           /* #0F1115 */
+    --foreground: 220 14% 95%;          /* #F0F2F5 */
+    --card: 220 13% 11%;                /* #181B21 */
+    --card-foreground: 220 14% 95%;
+    --popover: 220 13% 15%;             /* #21252D */
+    --popover-foreground: 220 14% 95%;
 
-    --secondary: 0 0% 15%;            /* #272727 */
-    --secondary-foreground: 0 0% 95%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 67%;     /* #AAAAAA */
-    --accent: 0 0% 25%;               /* #3F3F3F */
-    --accent-foreground: 0 0% 95%;
+    --primary: 208 100% 63%;            /* #42AAFF — 7.6:1 on dark */
+    --primary-foreground: 220 18% 8%;
 
-    --destructive: 3 100% 64%;        /* #FF4E45 */
-    --destructive-foreground: 0 0% 6%;
+    --secondary: 220 12% 16%;           /* #242830 */
+    --secondary-foreground: 220 14% 95%;
+    --muted: 220 12% 16%;
+    --muted-foreground: 220 9% 68%;     /* #A6ACB8 — 8.2:1 on dark */
+    --accent: 220 12% 24%;              /* #363C47 */
+    --accent-foreground: 220 14% 95%;
 
-    --border: 0 0% 20%;               /* #333333 */
-    --input: 0 0% 19%;                /* #303030 */
-    --ring: 208 100% 62%;
+    --destructive: 3 100% 66%;          /* #FF5A52 — 6.2:1 on dark */
+    --destructive-foreground: 220 18% 8%;
 
-    --inverse: 0 0% 95%;
-    --inverse-foreground: 0 0% 6%;
+    --border: 220 12% 21%;              /* #2F343E */
+    --input: 220 10% 44%;               /* #656D7B — 3.5:1 on dark, 3.1:1 on card */
+    --ring: 208 100% 63%;
 
-    --success: 142 60% 50%;
-    --warning: 40 100% 55%;
-    --info: 208 100% 62%;
+    --yt-red: 0 92% 58%;
+    --outlier: 172 72% 48%;             /* #22D3BD — 10.2:1 on dark */
+    --visited: 274 88% 76%;             /* #C58AF9 — 6.0:1 on dark */
 
-    --sidebar-background: 0 0% 6%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 0 0% 95%;
-    --sidebar-primary-foreground: 0 0% 6%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 0 0% 20%;
-    --sidebar-ring: 208 100% 62%;
+    /* Inverse in dark mode is a light surface (#F0F2F5) — use dark-calibrated accents */
+    --inverse: 220 14% 95%;
+    --inverse-foreground: 220 18% 8%;
+    --inverse-primary: 214 95% 40%;     /* #0558C7 — 5.6:1 on #F0F2F5 */
+    --inverse-success: 145 78% 25%;     /* #0E7236 — 5.3:1 on #F0F2F5 */
+    --inverse-destructive: 0 92% 40%;   /* #C40A0A — 5.4:1 on #F0F2F5 */
+
+    --success: 142 66% 52%;             /* #35D46D — 9.4:1 on dark */
+    --warning: 40 100% 56%;             /* #FFB61F — 10.6:1 on dark */
+    --info: 208 100% 63%;
+
+    --grade-a: 142 68% 54%;
+    --grade-b: 208 100% 63%;
+    --grade-c: 42 96% 58%;
+    --grade-d: 26 95% 60%;
+    --grade-f: 3 100% 66%;
+
+    --sidebar-background: 220 14% 9%;   /* #14171D */
+    --sidebar-foreground: 220 14% 95%;
+    --sidebar-primary: 220 14% 95%;
+    --sidebar-primary-foreground: 220 18% 8%;
+    --sidebar-accent: 220 12% 16%;
+    --sidebar-accent-foreground: 220 14% 95%;
+    --sidebar-border: 220 12% 20%;
+    --sidebar-ring: 208 100% 63%;
+
+    --scrollbar-thumb: hsl(220 10% 52%);
+    --scrollbar-track: transparent;
   }
 }
 
@@ -111,13 +161,20 @@
 
   html {
     -webkit-tap-highlight-color: transparent;
+    accent-color: hsl(var(--primary));
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    scrollbar-width: thin;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Roboto', 'Arial', sans-serif;
-    overflow-x: hidden;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.22);
+    color: hsl(var(--foreground));
   }
 
   button, [role='button'] {
@@ -128,9 +185,17 @@
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
   }
+
+  a {
+    text-underline-offset: 3px;
+  }
 }
 
-@layer components {
+/* Fallback scrollbar WebKit hanya untuk browser tanpa scrollbar-color standar */
+@supports not (scrollbar-color: auto) {
+  html, * {
+    scrollbar-width: auto;
+  }
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -139,13 +204,12 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.35);
+    background: var(--scrollbar-thumb);
     border-radius: 9999px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.6);
-  }
+}
 
+@layer components {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -154,65 +218,92 @@
     scrollbar-width: none;
   }
 
-  /* Chip ala YouTube (bar filter di bawah header) */
+  /* Chip filter / toggle (44px mobile touch target, 32px desktop compact) */
   .yt-chip {
-    @apply inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-[transform,background-color,color] duration-150 hover:bg-accent active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 sm:min-h-8;
+    transition-timing-function: var(--ease-out);
   }
   .yt-chip[data-active='true'] {
     @apply bg-inverse text-inverse-foreground hover:bg-inverse;
   }
 
-  /* Tombol pil (Subscribe / Share / Download di halaman tonton) */
+  /* Tombol pil (44px mobile touch target, 36px desktop) */
   .yt-pill {
-    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-secondary px-4 text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-secondary px-4 text-sm font-medium text-secondary-foreground transition-[transform,background-color] duration-150 hover:bg-accent active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 sm:min-h-9;
+    transition-timing-function: var(--ease-out);
   }
   .yt-pill-primary {
-    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-inverse px-4 text-sm font-medium text-inverse-foreground transition-opacity hover:opacity-85 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-inverse px-4 text-sm font-medium text-inverse-foreground transition-[transform,opacity] duration-150 hover:opacity-85 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 sm:min-h-9;
+    transition-timing-function: var(--ease-out);
   }
   .yt-pill-blue {
-    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 sm:min-h-9;
+    transition-timing-function: var(--ease-out);
   }
 
-  /* Tombol ikon bulat 40px */
+  /* Tombol ikon bulat (44px mobile, 40px desktop) */
   .yt-icon-btn {
-    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-secondary active:bg-accent disabled:pointer-events-none disabled:opacity-40;
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition-[transform,background-color] duration-150 hover:bg-secondary active:scale-[0.95] active:bg-accent disabled:pointer-events-none disabled:opacity-40 sm:h-10 sm:w-10;
+    transition-timing-function: var(--ease-out);
   }
 
-  /* Kartu ala YouTube Studio */
+  /* Kartu permukaan analitik */
   .yt-card {
     @apply rounded-xl border border-border bg-card text-card-foreground;
   }
 
-  /* Field input netral */
+  /* Field input dengan kontras border >= 3:1 */
   .yt-input {
-    @apply h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary;
+    @apply h-11 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary focus-visible:ring-2 focus-visible:ring-ring/30 sm:h-10;
   }
 
   .yt-label {
-    @apply text-xs font-medium uppercase tracking-wide text-muted-foreground;
+    @apply text-xs font-semibold uppercase tracking-wide text-muted-foreground;
   }
 
-  /* Judul halaman ala Studio */
   .yt-page-title {
-    @apply text-2xl font-bold tracking-tight text-foreground;
+    @apply text-2xl font-bold tracking-tight text-foreground text-balance;
+  }
+
+  /* Defer rendering kartu panjang di luar viewport */
+  .deferred-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto none auto 300px;
+  }
+
+  /* Zoom thumbnail hanya pada pointer presisi (mencegah sticky hover di layar sentuh) */
+  .thumb-zoom {
+    transition: transform 200ms var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .group:hover .thumb-zoom {
+      transform: scale(1.025);
+    }
   }
 }
 
 @layer utilities {
-  @keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+  @keyframes shimmer-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
 
   .animate-shimmer {
+    position: relative;
+    overflow: hidden;
+    background-color: hsl(var(--muted));
+  }
+  .animate-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
     background: linear-gradient(
       90deg,
-      hsl(var(--muted)) 0%,
-      hsl(var(--accent)) 50%,
-      hsl(var(--muted)) 100%
+      transparent 0%,
+      hsl(var(--accent) / 0.75) 50%,
+      transparent 100%
     );
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite linear;
+    animation: shimmer-sweep 1.4s infinite linear;
   }
 
   @keyframes loading-bar {
@@ -224,6 +315,21 @@
     animation: loading-bar 1.1s ease-in-out infinite;
   }
 
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-toast-in {
+    animation: toast-in 200ms var(--ease-out) both;
+  }
+
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -233,10 +339,29 @@
   }
 }
 
+/* Reduced motion selektif: hapus gerak translasi/scale/shimmer, pertahankan status & opacity */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  .animate-shimmer::after {
+    animation: none;
+    display: none;
+  }
+
+  .animate-toast-in {
+    animation: none;
+  }
+
+  .thumb-zoom,
+  .yt-chip,
+  .yt-pill,
+  .yt-pill-primary,
+  .yt-pill-blue,
+  .yt-icon-btn {
+    transform: none !important;
+    transition-property: background-color, color, opacity, border-color !important;
+    transition-duration: 120ms !important;
+  }
+
+  .animate-loading-bar {
+    animation-duration: 2.8s;
   }
 }

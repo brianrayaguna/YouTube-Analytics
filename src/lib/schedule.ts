@@ -87,7 +87,7 @@ type Point = SchedulePoint;
 
 const median = (nums: number[]) => {
   if (!nums.length) return 0;
-  const s = [...nums].sort((a, b) => a - b);
+  const s = nums.toSorted((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
@@ -133,25 +133,32 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
     });
   });
 
-  const cells: Slot[][] = Array.from({ length: 7 }, (_, day) =>
-    Array.from({ length: 24 }, (_, hour) => ({
-      day,
-      hour,
-      span: 1,
-      ...summarize(points.filter(p => p.day === day && p.hour === hour)),
-    }))
+  const cellPts: Point[][][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => []));
+  const blocksPerDay = Math.ceil(24 / BLOCK_HOURS);
+  const blockPts: Point[][][] = Array.from({ length: 7 }, () => Array.from({ length: blocksPerDay }, () => []));
+  const dayPts: Point[][] = Array.from({ length: 7 }, () => []);
+  const hourPts: Point[][] = Array.from({ length: 24 }, () => []);
+
+  for (const p of points) {
+    cellPts[p.day][p.hour].push(p);
+    blockPts[p.day][Math.floor(p.hour / BLOCK_HOURS)].push(p);
+    dayPts[p.day].push(p);
+    hourPts[p.hour].push(p);
+  }
+
+  const cells: Slot[][] = cellPts.map((dayRow, day) =>
+    dayRow.map((pts, hour) => ({ day, hour, span: 1, ...summarize(pts) }))
   );
 
   const blocks: Slot[] = [];
   for (let day = 0; day < 7; day++) {
-    for (let hour = 0; hour < 24; hour += BLOCK_HOURS) {
-      const pts = points.filter(p => p.day === day && p.hour >= hour && p.hour < hour + BLOCK_HOURS);
-      blocks.push({ day, hour, span: BLOCK_HOURS, ...summarize(pts) });
+    for (let b = 0; b < blocksPerDay; b++) {
+      blocks.push({ day, hour: b * BLOCK_HOURS, span: BLOCK_HOURS, ...summarize(blockPts[day][b]) });
     }
   }
 
-  const byDay = Array.from({ length: 7 }, (_, day) => ({ day, ...summarize(points.filter(p => p.day === day)) }));
-  const byHour = Array.from({ length: 24 }, (_, hour) => ({ hour, ...summarize(points.filter(p => p.hour === hour)) }));
+  const byDay = dayPts.map((pts, day) => ({ day, ...summarize(pts) }));
+  const byHour = hourPts.map((pts, hour) => ({ hour, ...summarize(pts) }));
 
   const byPerfDesc = <T extends SlotStats>(a: T, b: T) => b.performance - a.performance || b.count - a.count;
   const rankedBlocks = rankable(blocks).sort(byPerfDesc);
@@ -160,6 +167,7 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
   const worst = rankedBlocks.filter(s => s.performance < 1).reverse().slice(0, 3);
 
   const flatCells = cells.flat();
+  const topDayByCount = byDay.toSorted((a, b) => b.count - a.count)[0];
   return {
     total: points.length,
     points,
@@ -171,7 +179,7 @@ export const analyzeSchedule = (videos: VideoItem[], now = Date.now()): Schedule
     worst,
     bestDay: rankable(byDay).sort(byPerfDesc)[0] ?? null,
     bestHour: rankable(byHour).sort(byPerfDesc)[0] ?? null,
-    busiestDay: [...byDay].sort((a, b) => b.count - a.count)[0]?.count ? [...byDay].sort((a, b) => b.count - a.count)[0] : null,
+    busiestDay: topDayByCount?.count ? topDayByCount : null,
     maxCount: Math.max(1, ...flatCells.map(c => c.count)),
     maxAvgViews: Math.max(1, ...flatCells.map(c => c.avgViews)),
   };

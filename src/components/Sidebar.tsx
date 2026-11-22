@@ -1,4 +1,5 @@
 import React from 'react';
+import { Lock } from 'lucide-react';
 import { AnalysisMode } from '../types';
 import { NAV_SECTIONS, NavItem } from '../config/navigation';
 import { cn } from '@/lib/utils';
@@ -10,61 +11,79 @@ interface NavListProps {
   hasData?: boolean;
 }
 
-const NavRow: React.FC<{ item: NavItem; active: boolean; onClick: () => void; badge?: React.ReactNode }> = ({
-  item,
-  active,
-  onClick,
-  badge,
-}) => {
+const NavRow: React.FC<{
+  item: NavItem;
+  active: boolean;
+  locked?: boolean;
+  onClick: () => void;
+  badge?: React.ReactNode;
+}> = ({ item, active, locked, onClick, badge }) => {
   const Icon = item.icon;
   return (
     <button
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
+      title={locked ? `${item.label} — analisis channel terlebih dahulu` : item.label}
       className={cn(
-        'flex h-10 w-full items-center gap-6 rounded-lg px-3 text-left text-sm transition-colors',
-        active ? 'bg-secondary font-medium text-foreground hover:bg-accent' : 'text-foreground hover:bg-secondary'
+        'flex min-h-11 w-full items-center gap-3.5 rounded-lg px-3 text-left text-sm transition-colors md:min-h-10',
+        active
+          ? 'bg-secondary font-medium text-foreground hover:bg-accent'
+          : 'text-foreground hover:bg-secondary/80',
+        locked && !active && 'opacity-60 hover:opacity-90'
       )}
     >
-      <Icon className="h-6 w-6 shrink-0" strokeWidth={active ? 2.25 : 1.75} />
+      <Icon className="h-5 w-5 shrink-0" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
       <span className="flex-1 truncate">{item.label}</span>
       {badge}
+      {locked && <span className="sr-only">Membutuhkan analisis channel terlebih dahulu</span>}
     </button>
   );
 };
 
 /** Daftar navigasi lengkap — dipakai sidebar desktop & drawer mobile. */
 export const NavList: React.FC<NavListProps> = ({ currentMode, onNavigate, savedCount = 0, hasData }) => (
-  <nav className="flex flex-col pb-4" aria-label="Navigasi utama">
-    {NAV_SECTIONS.map((section, idx) => (
-      <div key={section.title ?? idx} className={cn('px-3 py-3', idx > 0 && 'border-t border-border')}>
-        {section.title && (
-          <h3 className="px-3 pb-1 pt-1 text-base font-bold text-foreground">{section.title}</h3>
-        )}
-        {section.items.map(item => (
-          <NavRow
-            key={item.mode}
-            item={item}
-            active={currentMode === item.mode}
-            onClick={() => onNavigate(item.mode)}
-            badge={
-              item.mode === 'saved' && savedCount > 0 ? (
-                <span className="text-xs text-muted-foreground">{savedCount}</span>
-              ) : item.needsData && !hasData ? (
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" title="Perlu analisis channel dulu" />
-              ) : null
-            }
-          />
-        ))}
-      </div>
-    ))}
-    <div className="border-t border-border px-6 pt-4 text-xs leading-5 text-muted-foreground">
+  <div className="flex flex-col pb-4">
+    <nav className="flex flex-col" aria-label="Navigasi utama">
+      {NAV_SECTIONS.map((section, idx) => (
+        <div key={section.title ?? idx} className={cn('px-3 py-2.5', idx > 0 && 'border-t border-sidebar-border')}>
+          {section.title && (
+            <p className="px-3 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {section.title}
+            </p>
+          )}
+          <div className="space-y-0.5">
+            {section.items.map(item => {
+              const locked = Boolean(item.needsData && !hasData);
+              return (
+                <NavRow
+                  key={item.mode}
+                  item={item}
+                  active={currentMode === item.mode}
+                  locked={locked}
+                  onClick={() => onNavigate(item.mode)}
+                  badge={
+                    item.mode === 'saved' && savedCount > 0 ? (
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium tabular-nums text-foreground">
+                        {savedCount}
+                      </span>
+                    ) : locked ? (
+                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    ) : null
+                  }
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </nav>
+    <div className="border-t border-sidebar-border px-6 pt-4 text-xs leading-5 text-muted-foreground">
       <p>Data dari YouTube Data API v3.</p>
       <p>Kuota direset setiap tengah malam (waktu Pasifik).</p>
       <p className="mt-3 text-[11px]">© {new Date().getFullYear()} YT Analyzer Pro</p>
     </div>
-  </nav>
+  </div>
 );
 
 interface SidebarProps extends NavListProps {
@@ -74,43 +93,49 @@ interface SidebarProps extends NavListProps {
 const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, savedCount = 0, hasData }) => {
   if (expanded) {
     return (
-      <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto bg-background md:block">
+      <aside
+        id="desktop-sidebar"
+        className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block"
+      >
         <NavList currentMode={currentMode} onNavigate={onNavigate} savedCount={savedCount} hasData={hasData} />
       </aside>
     );
   }
 
-  // Sidebar mini memakai daftar & urutan yang sama dengan sidebar penuh (hanya tampilannya yang ringkas)
   return (
-    <aside className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto bg-background px-1 pb-4 pt-1 no-scrollbar md:block">
+    <aside
+      id="desktop-sidebar"
+      className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto border-r border-sidebar-border bg-sidebar px-1 pb-4 pt-1 no-scrollbar md:block"
+    >
       <nav aria-label="Navigasi utama">
         {NAV_SECTIONS.map((section, idx) => (
-          <div key={section.title ?? idx} className={cn(idx > 0 && 'mt-1 border-t border-border pt-1')}>
+          <div key={section.title ?? idx} className={cn(idx > 0 && 'mt-1 border-t border-sidebar-border pt-1')}>
             {section.items.map(item => {
               const Icon = item.icon;
               const active = currentMode === item.mode;
-              const needsData = item.needsData && !hasData;
+              const locked = Boolean(item.needsData && !hasData);
               return (
                 <button
                   key={item.mode}
                   type="button"
                   onClick={() => onNavigate(item.mode)}
                   aria-current={active ? 'page' : undefined}
-                  aria-label={item.label}
-                  title={needsData ? `${item.label} (perlu analisis channel dulu)` : item.label}
+                  aria-label={locked ? `${item.label} (membutuhkan analisis channel)` : item.label}
+                  title={locked ? `${item.label} (analisis channel terlebih dahulu)` : item.label}
                   className={cn(
-                    'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3 pt-3.5 text-foreground transition-colors',
-                    active ? 'bg-secondary hover:bg-accent' : 'hover:bg-secondary'
+                    'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3 pt-3 text-foreground transition-colors',
+                    active ? 'bg-secondary hover:bg-accent' : 'hover:bg-secondary/80',
+                    locked && !active && 'opacity-55 hover:opacity-90'
                   )}
                 >
                   <span className="relative">
-                    <Icon className="h-6 w-6" strokeWidth={active ? 2.25 : 1.75} />
-                    {item.mode === 'saved' && savedCount ? (
-                      <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-youtube-red px-1 text-center text-[10px] font-medium leading-4 text-white">
+                    <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
+                    {item.mode === 'saved' && savedCount > 0 ? (
+                      <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] font-semibold leading-4 tabular-nums text-destructive-foreground">
                         {savedCount > 99 ? '99+' : savedCount}
                       </span>
-                    ) : needsData ? (
-                      <span className="absolute -right-1 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+                    ) : locked ? (
+                      <Lock className="absolute -right-2 -top-1 h-2.5 w-2.5 text-muted-foreground" aria-hidden="true" />
                     ) : null}
                   </span>
                   <span className={cn('max-w-full truncate px-1 text-[10px] leading-none', active && 'font-medium')}>

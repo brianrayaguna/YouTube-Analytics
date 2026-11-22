@@ -1,39 +1,59 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Mic, History, X, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { Search, History, X, ArrowLeft, ChevronDown, Check, Layers } from 'lucide-react';
 import { getSuggestions } from '../services/suggestionService';
 import { getSearchHistory, removeFromSearchHistory, subscribeSearchHistory, SearchHistoryItem } from '../services/historyService';
-import { ShowToast } from '../types';
+import { estimateQuotaCost } from '../services/youtubeService';
+import { FetchLimit } from '../types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+
+const FETCH_LIMITS: Array<{ value: FetchLimit; label: string }> = [
+  { value: 10, label: '10 video' },
+  { value: 50, label: '50 video' },
+  { value: 100, label: '100 video' },
+  { value: 500, label: '500 video' },
+  { value: 1000, label: '1.000 video' },
+  { value: 5000, label: '5.000 video' },
+];
 
 interface SearchBarProps {
   query: string;
   setQuery: (q: string) => void;
   onSearch: (q: string) => void;
-  onToast?: ShowToast;
+  fetchLimit?: FetchLimit;
+  onFetchLimitChange?: (limit: FetchLimit) => void;
   inputRef?: React.RefObject<HTMLInputElement>;
   /** Mode mobile: tampilkan tombol kembali */
   onBack?: () => void;
   autoFocus?: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API belum ada di lib.dom
-type SpeechRecognitionCtor = new () => any;
-
-const getSpeechRecognition = (): SpeechRecognitionCtor | undefined => {
-  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
-  return w.SpeechRecognition || w.webkitSpeechRecognition;
-};
-
 type DropdownItem = { kind: 'history'; value: string; item: SearchHistoryItem } | { kind: 'suggestion'; value: string };
 
-const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToast, inputRef, onBack, autoFocus }) => {
+const SearchBar: React.FC<SearchBarProps> = ({
+  query,
+  setQuery,
+  onSearch,
+  fetchLimit = 50,
+  onFetchLimitChange,
+  inputRef,
+  onBack,
+  autoFocus,
+}) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [history, setHistory] = useState<SearchHistoryItem[]>(() => getSearchHistory());
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const [highlight, setHighlight] = useState(-1);
-  const [listening, setListening] = useState(false);
 
+  const listboxId = useId();
   const localRef = useRef<HTMLInputElement>(null);
   const ref = inputRef ?? localRef;
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -72,13 +92,13 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToas
     const q = query.trim().toLowerCase();
     const matchedHistory = history
       .filter(h => !q || h.query.toLowerCase().includes(q))
-      .slice(0, q ? 3 : 10)
+      .slice(0, q ? 3 : 8)
       .map(h => ({ kind: 'history' as const, value: h.query, item: h }));
     const historyValues = new Set(matchedHistory.map(h => h.value.toLowerCase()));
     const sugg = q
       ? suggestions
           .filter(s => !historyValues.has(s.toLowerCase()))
-          .slice(0, 10 - matchedHistory.length)
+          .slice(0, 8 - matchedHistory.length)
           .map(s => ({ kind: 'suggestion' as const, value: s }))
       : [];
     return [...matchedHistory, ...sugg];
@@ -118,34 +138,14 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToas
     }
   };
 
-  const startVoiceSearch = () => {
-    const Recognition = getSpeechRecognition();
-    if (!Recognition) {
-      onToast?.('Pencarian suara tidak didukung browser ini', 'error');
-      return;
-    }
-    const recognition = new Recognition();
-    recognition.lang = 'id-ID';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => {
-      setListening(false);
-      onToast?.('Tidak bisa mengakses mikrofon', 'error');
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SpeechRecognitionEvent
-    recognition.onresult = (event: any) => submit(event.results[0][0].transcript);
-    recognition.start();
-  };
-
   const showDropdown = open && focused && items.length > 0;
+  const activeOptionId = showDropdown && highlight >= 0 ? `${listboxId}-opt-${highlight}` : undefined;
 
   return (
-    <div ref={wrapperRef} className="relative flex w-full items-center gap-2 md:gap-4">
+    <div ref={wrapperRef} className="relative flex w-full items-center gap-2">
       {onBack && (
         <button type="button" onClick={onBack} className="yt-icon-btn" aria-label="Kembali">
-          <ArrowLeft className="h-6 w-6" strokeWidth={1.75} />
+          <ArrowLeft className="h-5 w-5" strokeWidth={1.75} />
         </button>
       )}
 
@@ -160,18 +160,23 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToas
         <div
           className={cn(
             'flex flex-1 items-center rounded-l-full border bg-background pl-4 pr-1 transition-colors',
-            focused ? 'border-primary shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] md:ml-0' : 'border-input'
+            focused ? 'border-primary shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)]' : 'border-input'
           )}
         >
-          {focused && <Search className="mr-3 hidden h-5 w-5 shrink-0 text-foreground sm:block" strokeWidth={1.75} />}
+          {focused && <Search className="mr-2.5 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" strokeWidth={1.75} aria-hidden="true" />}
           <input
             ref={ref}
             type="search"
+            role="combobox"
             enterKeyHint="search"
             autoComplete="off"
             spellCheck={false}
-            aria-label="Cari"
-            className="h-full w-full min-w-0 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+            aria-label="Cari channel, @handle, URL, atau topik"
+            aria-expanded={showDropdown}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={activeOptionId}
+            className="h-full w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground sm:text-[15px] [&::-webkit-search-cancel-button]:hidden"
             placeholder="Cari channel, @handle, URL, atau topik"
             value={query}
             onChange={e => {
@@ -194,55 +199,65 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToas
                 ref.current?.focus();
               }}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-secondary"
-              aria-label="Hapus teks"
+              aria-label="Hapus teks pencarian"
             >
-              <X className="h-5 w-5" strokeWidth={1.75} />
+              <X className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
         </div>
         <button
           type="submit"
-          className="flex w-16 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-input bg-secondary/70 transition-colors hover:bg-accent"
+          className="flex w-14 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-input bg-secondary/80 transition-colors hover:bg-accent"
           aria-label="Analisis"
           title="Analisis"
         >
-          <Search className="h-5 w-5" strokeWidth={1.75} />
+          <Search className="h-4 w-4" strokeWidth={1.9} />
         </button>
 
         {showDropdown && (
           <ul
-            className="absolute left-0 right-16 top-[calc(100%+4px)] z-[200] overflow-hidden rounded-xl border border-border bg-popover py-4 shadow-popover"
+            id={listboxId}
+            className="absolute left-0 right-0 top-[calc(100%+6px)] z-[200] overflow-hidden rounded-xl border border-border bg-popover py-2 shadow-popover"
             role="listbox"
+            aria-label="Saran dan riwayat pencarian"
           >
             {items.map((it, idx) => (
               <li
                 key={`${it.kind}-${it.value}`}
-                role="option"
-                aria-selected={highlight === idx}
-                onMouseDown={e => e.preventDefault()}
-                onMouseEnter={() => setHighlight(idx)}
-                onClick={() => submit(it.value)}
+                role="presentation"
                 className={cn(
-                  'group flex h-8 cursor-default items-center gap-4 px-4 text-base',
+                  'group flex min-h-10 items-center gap-2 px-3 transition-colors',
                   highlight === idx && 'bg-secondary'
                 )}
+                onMouseEnter={() => setHighlight(idx)}
               >
-                {it.kind === 'history' ? (
-                  <History className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.75} />
-                ) : (
-                  <Search className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.75} />
-                )}
-                <span className={cn('flex-1 truncate', it.kind === 'history' && 'text-[#681da8] dark:text-[#c58af9]')}>
-                  {it.value}
-                </span>
+                <div
+                  id={`${listboxId}-opt-${idx}`}
+                  role="option"
+                  aria-selected={highlight === idx}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => submit(it.value)}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-1.5 text-sm"
+                >
+                  {it.kind === 'history' ? (
+                    <History className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+                  ) : (
+                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+                  )}
+                  <span className={cn('flex-1 truncate', it.kind === 'history' && 'text-visited')}>
+                    {it.value}
+                  </span>
+                </div>
                 {it.kind === 'history' && (
                   <button
                     type="button"
+                    onMouseDown={e => e.preventDefault()}
                     onClick={e => {
                       e.stopPropagation();
                       removeFromSearchHistory(it.item.timestamp);
                     }}
-                    className="text-xs text-primary opacity-0 hover:underline group-hover:opacity-100 group-aria-selected:opacity-100"
+                    aria-label={`Hapus "${it.value}" dari riwayat`}
+                    className="rounded px-2 py-1 text-xs font-medium text-primary opacity-100 hover:underline sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                   >
                     Hapus
                   </button>
@@ -253,18 +268,44 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, onToas
         )}
       </form>
 
-      <button
-        type="button"
-        onClick={startVoiceSearch}
-        className={cn(
-          'yt-icon-btn hidden bg-secondary sm:inline-flex',
-          listening && 'animate-pulse bg-youtube-red text-white hover:bg-youtube-red'
-        )}
-        aria-label="Telusuri dengan suara"
-        title="Telusuri dengan suara"
-      >
-        <Mic className="h-5 w-5" strokeWidth={1.75} />
-      </button>
+      {onFetchLimitChange && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-input bg-secondary/70 px-3 text-xs font-medium tabular-nums text-foreground transition-colors hover:bg-accent"
+              aria-label={`Batas ambil data: ${fetchLimit.toLocaleString('id-ID')} video`}
+              title="Jumlah maksimal video yang diambil saat analisis"
+            >
+              <Layers className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.8} aria-hidden="true" />
+              <span>{fetchLimit.toLocaleString('id-ID')}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+              Jumlah video yang diambil
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {FETCH_LIMITS.map(opt => {
+              const cost = estimateQuotaCost(query, opt.value);
+              return (
+                <DropdownMenuItem
+                  key={opt.value}
+                  onSelect={() => onFetchLimitChange(opt.value)}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <Check className={cn('h-4 w-4', fetchLimit === opt.value ? 'opacity-100' : 'opacity-0')} />
+                    <span className="tabular-nums">{opt.label}</span>
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground">±{cost} unit</span>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 };

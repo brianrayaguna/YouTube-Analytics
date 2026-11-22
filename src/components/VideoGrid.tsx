@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Clapperboard } from 'lucide-react';
 import VideoCard from './VideoCard';
-import { VideoItem, ShowToast, ContentTypeFilter } from '../types';
+import { VideoItem, ShowToast, ContentTypeFilter, SortOption } from '../types';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 48;
@@ -10,6 +10,7 @@ const SHELF_AFTER = 8;
 interface VideoGridProps {
   videos: VideoItem[];
   contentType: ContentTypeFilter;
+  sort?: SortOption;
   onShowAllShorts: () => void;
   onToast: ShowToast;
   savedIds: Set<string>;
@@ -21,25 +22,16 @@ interface VideoGridProps {
 }
 
 const LONG_GRID = 'grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 sm:gap-y-10 lg:grid-cols-3 2xl:grid-cols-4 min-[2200px]:grid-cols-5';
-const SHORTS_GRID = 'grid grid-cols-2 gap-x-2 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6';
+const SHORTS_GRID = 'grid grid-cols-2 gap-x-2.5 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6';
 
 // Sembunyikan item rak Shorts yang tidak muat dalam satu baris
 const SHELF_VISIBILITY = ['', '', 'hidden sm:block', 'hidden md:block', 'hidden lg:block', 'hidden 2xl:block'];
 
-const ShortsMark = () => (
-  <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-    <path
-      fill="hsl(var(--yt-red))"
-      d="M17.77 10.32l-1.2-.5L18 9.06c1.84-.96 2.53-3.23 1.56-5.06s-3.24-2.53-5.07-1.56L6 6.94c-1.29.68-2.07 2.04-2 3.49.07 1.42.93 2.67 2.22 3.25.03.01 1.2.5 1.2.5L6 14.93c-1.83.97-2.53 3.24-1.56 5.07.97 1.83 3.24 2.53 5.07 1.56l8.5-4.5c1.29-.68 2.06-2.04 1.99-3.49-.07-1.42-.94-2.68-2.23-3.25z"
-    />
-    <path fill="#fff" d="M10 14.65v-5.3L15 12z" />
-  </svg>
-);
-
-/** Grid video ala beranda YouTube + rak Shorts + infinite scroll. */
+/** Grid video responsif dengan pemuatan bertahap; rak Shorts hanya tampil saat urut kronologis terbaru. */
 const VideoGrid: React.FC<VideoGridProps> = ({
   videos,
   contentType,
+  sort = 'popular',
   onShowAllShorts,
   onToast,
   savedIds,
@@ -56,7 +48,8 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
   const longs = contentType === 'all' ? videos.filter(v => !v.isShort) : videos;
   const shorts = contentType === 'all' ? videos.filter(v => v.isShort) : [];
-  const useShelf = contentType === 'all' && shorts.length > 0 && longs.length > 0;
+  // Jangan memecah urutan peringkat ketika pengguna menyortir berdasarkan metrik (populer, ER, likes, komentar)
+  const useShelf = contentType === 'all' && sort === 'newest' && shorts.length > 0 && longs.length > 0;
   const mainList = useShelf ? longs : videos;
   const hasMore = visible < mainList.length;
 
@@ -103,9 +96,12 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
       {useShelf && (
         <section className={cn(firstChunk.length > 0 && 'mt-10')}>
-          <h2 className="mb-4 flex items-center gap-2 text-xl font-bold text-foreground">
-            <ShortsMark /> Shorts
-            <span className="text-sm font-normal text-muted-foreground">({shorts.length})</span>
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+              <Clapperboard className="h-4 w-4" aria-hidden="true" />
+            </span>
+            Shorts
+            <span className="text-sm font-normal tabular-nums text-muted-foreground">({shorts.length})</span>
           </h2>
           <div className={SHORTS_GRID}>
             {shorts.slice(0, 6).map((v, i) => renderCard(v, i, true, SHELF_VISIBILITY[i]))}
@@ -115,9 +111,9 @@ const VideoGrid: React.FC<VideoGridProps> = ({
             <button
               type="button"
               onClick={onShowAllShorts}
-              className="relative inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-12 text-sm font-medium hover:bg-secondary"
+              className="relative inline-flex min-h-11 items-center gap-2 rounded-full border border-border bg-background px-8 text-sm font-medium transition-colors hover:bg-secondary sm:min-h-9"
             >
-              Tampilkan semua Shorts <ChevronDown className="h-5 w-5" strokeWidth={1.75} />
+              Tampilkan semua Shorts <ChevronDown className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         </section>
@@ -127,7 +123,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
       {hasMore && (
         <div ref={sentinelRef} className="flex justify-center py-8">
-          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-secondary border-t-primary" aria-label="Memuat" />
+          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-secondary border-t-primary" role="status" aria-label="Memuat video lainnya" />
         </div>
       )}
     </>

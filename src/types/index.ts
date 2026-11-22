@@ -20,6 +20,8 @@ export interface VideoItem {
   channelId: string;
   isShort: boolean;
   isOutlier?: boolean;
+  /** Rasio views terhadap median daftar (mis. 4.2 berarti 4,2× median) */
+  outlierRatio?: number;
   /** Jumlah like disembunyikan kreator (likeCount tidak tersedia di API) */
   likesHidden?: boolean;
   /** Komentar dinonaktifkan (commentCount tidak tersedia di API) */
@@ -82,6 +84,10 @@ export type SortOption = 'newest' | 'oldest' | 'popular' | 'most_liked' | 'highe
 export type DurationRange = 'all' | 'under_1' | '1_5' | '5_20' | 'over_20';
 
 export type DateRangeFilter = 'all' | '7d' | '30d' | '90d' | '1y';
+
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+export type VideoViewMode = 'grid' | 'table';
 
 export type ToastType = 'success' | 'error' | 'loading' | 'info';
 

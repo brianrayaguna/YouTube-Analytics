@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   SlidersHorizontal,
   Link2,
@@ -18,6 +19,10 @@ import {
   ChevronDown,
   Check,
   History as HistoryIcon,
+  Sparkles,
+  LayoutGrid,
+  Table2,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   ToastState,
@@ -28,7 +33,8 @@ import {
   SortOption,
   FetchLimit,
   VideoItem,
-  TrendingRegion,
+  ThemePreference,
+  VideoViewMode,
 } from '../types';
 import AppHeader from '../components/AppHeader';
 import Sidebar from '../components/Sidebar';
@@ -37,11 +43,9 @@ import BottomNav from '../components/BottomNav';
 import Toast from '../components/Toast';
 import SkeletonCard from '../components/SkeletonCard';
 import VideoGrid from '../components/VideoGrid';
+import VideoTable from '../components/VideoTable';
 import ChannelHeader from '../components/ChannelHeader';
-import VideoPreviewModal from '../components/VideoPreviewModal';
-import SettingsDialog from '../components/SettingsDialog';
-import FilterDialog from '../components/FilterDialog';
-import { EmptyState, NeedDataState } from '../components/common';
+import { EmptyState, NeedDataState, PageHeader } from '../components/common';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,18 +53,37 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage, classifyQuery, markOutliers, SEARCH_RESULT_CAP, TRENDING_RESULT_CAP } from '../services/youtubeService';
+import {
+  fetchYouTubeData,
+  fetchTrendingVideos,
+  getQuotaUsage,
+  classifyQuery,
+  markOutliers,
+  isAbortError,
+  SEARCH_RESULT_CAP,
+  TRENDING_RESULT_CAP,
+} from '../services/youtubeService';
 import { copyToClipboard } from '../services/exportService';
-import ExportDialog, { ExportScope } from '../components/ExportDialog';
+import type { ExportScope } from '../components/ExportDialog';
 import { generateZip } from '../services/zipService';
-import { addToSearchHistory, getSearchHistory } from '../services/historyService';
-import { applyFilters, countActiveFilters, describeFilters, DEFAULT_FILTERS, SORT_LABELS, VideoFilters } from '../lib/filters';
-import { timeAgo, formatFullNumber } from '../lib/format';
-import { getNavItem } from '../config/navigation';
+import { addToSearchHistory, getSearchHistory, subscribeSearchHistory, SearchHistoryItem } from '../services/historyService';
+import {
+  applyFilters,
+  countActiveFilters,
+  describeFilters,
+  DEFAULT_FILTERS,
+  SORT_LABELS,
+  DURATION_LABELS,
+  DATE_LABELS,
+  VideoFilters,
+} from '../lib/filters';
+import { timeAgo, formatFullNumber, formatNumber } from '../lib/format';
+import { getNavItem, ALL_NAV_ITEMS } from '../config/navigation';
+import { TRENDING_REGIONS } from '../config/regions';
 import { withShortsClassification } from '../lib/video';
 import { cn } from '@/lib/utils';
 
-// Halaman analisis dimuat terpisah (code-splitting) agar bundle awal ringan
+// Halaman analisis & dialog dimuat terpisah (code-splitting) agar bundle awal ringan
 const InsightsDashboard = lazy(() => import('../components/InsightsDashboard'));
 const CompetitorBenchmark = lazy(() => import('../components/CompetitorBenchmark'));
 const ContentGapAnalyzer = lazy(() => import('../components/ContentGapAnalyzer'));
@@ -68,27 +91,16 @@ const UploadScheduleAnalyzer = lazy(() => import('../components/UploadScheduleAn
 const TitleScoreAnalyzer = lazy(() => import('../components/TitleScoreAnalyzer'));
 const SearchHistoryPage = lazy(() => import('../components/SearchHistoryPage'));
 const DownloaderPage = lazy(() => import('../components/DownloaderPage'));
-
-const TRENDING_REGIONS: TrendingRegion[] = [
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'MY', name: 'Malaysia' },
-  { code: 'SG', name: 'Singapura' },
-  { code: 'US', name: 'Amerika Serikat' },
-  { code: 'GB', name: 'Inggris' },
-  { code: 'IN', name: 'India' },
-  { code: 'PH', name: 'Filipina' },
-  { code: 'BR', name: 'Brasil' },
-  { code: 'JP', name: 'Jepang' },
-  { code: 'KR', name: 'Korea Selatan' },
-  { code: 'CA', name: 'Kanada' },
-  { code: 'DE', name: 'Jerman' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'FR', name: 'Prancis' },
-];
+const VideoPreviewModal = lazy(() => import('../components/VideoPreviewModal'));
+const ExportDialog = lazy(() => import('../components/ExportDialog'));
+const SettingsDialog = lazy(() => import('../components/SettingsDialog'));
+const FilterDialog = lazy(() => import('../components/FilterDialog'));
 
 const GRID_MODES: AnalysisMode[] = ['dashboard', 'trending', 'saved'];
-const QUICK_SORTS: SortOption[] = ['popular', 'newest', 'highest_er', 'most_liked'];
-const EXAMPLE_QUERIES = ['@MrBeast', '@windahbasudara', 'review hp terbaru', 'https://youtu.be/dQw4w9WgXcQ'];
+const ALL_MODES = new Set<AnalysisMode>(ALL_NAV_ITEMS.map(i => i.mode));
+const ALL_SORTS: SortOption[] = ['popular', 'newest', 'oldest', 'highest_er', 'most_liked', 'most_commented'];
+const EXAMPLE_QUERIES = ['@MrBeast', '@windahbasudara', 'review hp terbaru'];
+const THEME_PREF_KEY = 'yt_theme_pref';
 
 const readLocal = <T,>(key: string, fallback: T, parse: (raw: string) => T = JSON.parse): T => {
   try {
@@ -107,26 +119,64 @@ const writeLocal = (key: string, value: string) => {
   }
 };
 
+const removeLocal = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // abaikan
+  }
+};
+
+const readInitialThemePref = (): ThemePreference => {
+  try {
+    const pref = localStorage.getItem(THEME_PREF_KEY);
+    if (pref === 'light' || pref === 'dark') return pref;
+    const legacy = localStorage.getItem('yt_dark_mode');
+    if (legacy === 'true') return 'dark';
+    if (legacy === 'false') return 'light';
+  } catch {
+    // abaikan
+  }
+  return 'system';
+};
+
+const getSystemDark = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
 const PageFallback = () => (
   <div className="flex justify-center py-24">
-    <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-secondary border-t-primary" aria-label="Memuat" />
+    <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-secondary border-t-primary" role="status" aria-label="Memuat halaman" />
   </div>
 );
 
 const YouTubeAnalyzer: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // --- Theme (mengikuti preferensi sistem secara default tanpa mematok localStorage saat mount) ---
+  const [themePref, setThemePref] = useState<ThemePreference>(readInitialThemePref);
+  const [systemDark, setSystemDark] = useState<boolean>(getSystemDark);
+  const darkMode = themePref === 'system' ? systemDark : themePref === 'dark';
+
   // --- UI state ---
-  const [darkMode, setDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
   const [sidebarExpanded, setSidebarExpanded] = useState(() =>
     readLocal('yt_sidebar_expanded', window.innerWidth >= 1280, raw => raw === 'true')
   );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [mode, setMode] = useState<AnalysisMode>('dashboard');
+  const [mode, setMode] = useState<AnalysisMode>(() => {
+    const paramMode = searchParams.get('mode') as AnalysisMode | null;
+    return paramMode && ALL_MODES.has(paramMode) ? paramMode : 'dashboard';
+  });
+  const [viewMode, setViewMode] = useState<VideoViewMode>(() => {
+    const paramView = searchParams.get('view');
+    if (paramView === 'table' || paramView === 'grid') return paramView;
+    return readLocal('yt_view_mode', 'grid' as VideoViewMode, raw => (raw === 'table' ? 'table' : 'grid'));
+  });
 
   // --- Data state ---
   const [apiKey, setApiKey] = useState(() => readLocal('yt_api_key_v5', '', raw => raw));
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => searchParams.get('q') ?? '');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AnalyzedData | null>(null);
   const [trendingData, setTrendingData] = useState<AnalyzedData | null>(null);
@@ -134,7 +184,16 @@ const YouTubeAnalyzer: React.FC = () => {
   const [savedVideos, setSavedVideos] = useState<VideoItem[]>(() =>
     readLocal<VideoItem[]>('yt_saved_videos', []).map(v => withShortsClassification({ ...v, publishedTimeAgo: timeAgo(v.publishedAt) }))
   );
-  const [filters, setFilters] = useState<VideoFilters>(DEFAULT_FILTERS);
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>(getSearchHistory);
+  const [filters, setFilters] = useState<VideoFilters>(() => {
+    const typeParam = searchParams.get('type');
+    const sortParam = searchParams.get('sort') as SortOption | null;
+    return {
+      ...DEFAULT_FILTERS,
+      contentType: typeParam === 'long' || typeParam === 'shorts' ? typeParam : 'all',
+      sort: sortParam && ALL_SORTS.includes(sortParam) ? sortParam : DEFAULT_FILTERS.sort,
+    };
+  });
   const [fetchLimit, setFetchLimit] = useState<FetchLimit>(() =>
     readLocal('yt_fetch_limit', 50 as FetchLimit, raw =>
       ([10, 50, 100, 500, 1000, 5000].includes(Number(raw)) ? Number(raw) : 50) as FetchLimit
@@ -157,11 +216,11 @@ const YouTubeAnalyzer: React.FC = () => {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const showToast = useCallback((message: string, type: ToastType = 'success') => {
     clearTimeout(toastTimer.current);
     setToast(prev => ({
-      // Toast "loading" berturut-turut memakai id yang sama agar tidak berkedip
       id: prev && prev.type === 'loading' && type === 'loading' ? prev.id : ++toastId.current,
       message,
       type,
@@ -177,10 +236,22 @@ const YouTubeAnalyzer: React.FC = () => {
       input.focus();
       input.select();
     } else {
-      // Mobile: kolom pencarian tersembunyi — buka mode pencarian lewat tombol header
-      document.querySelector<HTMLButtonElement>('button[aria-label="Cari"]')?.click();
+      document.querySelector<HTMLButtonElement>('button[aria-label="Cari channel atau topik"]')?.click();
     }
   }, []);
+
+  const applyThemePreference = useCallback((next: ThemePreference) => {
+    setThemePref(next);
+    removeLocal('yt_dark_mode');
+    if (next === 'system') removeLocal(THEME_PREF_KEY);
+    else writeLocal(THEME_PREF_KEY, next);
+  }, []);
+
+  const toggleDarkMode = useCallback(() => {
+    const target: 'light' | 'dark' = darkMode ? 'light' : 'dark';
+    const matchesSystem = (target === 'dark') === systemDark;
+    applyThemePreference(matchesSystem ? 'system' : target);
+  }, [applyThemePreference, darkMode, systemDark]);
 
   useKeyboardShortcuts({
     onSearch: focusSearch,
@@ -191,28 +262,58 @@ const YouTubeAnalyzer: React.FC = () => {
         setSelectedIds(new Set());
       }
     },
-    onToggleTheme: () => setDarkMode(d => !d),
-    enabled: !previewId && !settingsOpen && !filtersOpen,
+    onToggleTheme: toggleDarkMode,
+    enabled: !previewId && !settingsOpen && !filtersOpen && !exportOpen && !mobileNavOpen,
   });
 
-  // --- Effects ---
+  // --- Effects: Theme sync with OS + cross-tab ---
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener('change', onChange);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === THEME_PREF_KEY) setThemePref(readInitialThemePref());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      mq.removeEventListener('change', onChange);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    writeLocal('yt_dark_mode', String(darkMode));
-    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', darkMode ? '#0f0f0f' : '#ffffff'));
-  }, [darkMode]);
+    const scheme = themePref === 'system' ? 'light dark' : themePref;
+    const csMeta = document.querySelector('meta[name="color-scheme"]');
+    if (csMeta) csMeta.setAttribute('content', scheme);
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', darkMode ? '#0F1115' : '#FFFFFF'));
+  }, [darkMode, themePref]);
+
+  // --- Effects: URL searchParams sync ---
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (mode !== 'dashboard') next.set('mode', mode);
+    if (filters.contentType !== 'all') next.set('type', filters.contentType);
+    if (filters.sort !== DEFAULT_FILTERS.sort) next.set('sort', filters.sort);
+    if (viewMode !== 'grid') next.set('view', viewMode);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [mode, filters.contentType, filters.sort, viewMode, searchParams, setSearchParams]);
 
   useEffect(() => writeLocal('yt_sidebar_expanded', String(sidebarExpanded)), [sidebarExpanded]);
   useEffect(() => writeLocal('yt_fetch_limit', String(fetchLimit)), [fetchLimit]);
   useEffect(() => writeLocal('yt_trending_region', trendingRegion), [trendingRegion]);
   useEffect(() => writeLocal('yt_saved_videos', JSON.stringify(savedVideos)), [savedVideos]);
+  useEffect(() => writeLocal('yt_view_mode', viewMode), [viewMode]);
+  useEffect(() => subscribeSearchHistory(() => setSearchHistory(getSearchHistory())), []);
 
   useEffect(() => {
     const update = () => setQuotaUsed(getQuotaUsage());
     const onStorage = (e: StorageEvent) => e.key === 'yt_quota_usage_v1' && update();
     window.addEventListener('quotaUpdated', update);
     window.addEventListener('storage', onStorage);
-    const interval = setInterval(update, 60000); // reset harian
+    const interval = setInterval(update, 60000);
     return () => {
       window.removeEventListener('quotaUpdated', update);
       window.removeEventListener('storage', onStorage);
@@ -220,7 +321,12 @@ const YouTubeAnalyzer: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => {
+    return () => {
+      clearTimeout(toastTimer.current);
+      fetchAbortRef.current?.abort();
+    };
+  }, []);
 
   // Judul tab dinamis
   useEffect(() => {
@@ -235,6 +341,24 @@ const YouTubeAnalyzer: React.FC = () => {
     setSelectMode(false);
   }, []);
 
+  // --- Demo dataset ---
+  const loadDemoData = useCallback(
+    async (targetMode: AnalysisMode = 'dashboard') => {
+      fetchAbortRef.current?.abort();
+      setLoading(false);
+      clearSelection();
+      const { createDemoChannelData } = await import('../data/demoChannel');
+      const demo = createDemoChannelData();
+      setData(demo);
+      setQuery(demo.query ?? '@nusatechlab');
+      setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
+      setMode(targetMode);
+      scrollTop();
+      showToast('Data contoh Nusa Tech Lab dimuat — siap dieksplorasi', 'success');
+    },
+    [clearSelection, showToast]
+  );
+
   // --- Data loading ---
   const ensureApiKey = useCallback(() => {
     if (apiKey) return true;
@@ -248,13 +372,17 @@ const YouTubeAnalyzer: React.FC = () => {
       const q = searchQuery.trim();
       if (!q || !ensureApiKey()) return;
       const limit = opts.limit ?? fetchLimit;
+      fetchAbortRef.current?.abort();
+      const controller = new AbortController();
+      fetchAbortRef.current = controller;
+
       setLoading(true);
       clearSelection();
-      // Tetap di halaman analisis yang sedang dibuka, selain itu pindah ke Beranda
       setMode(m => (getNavItem(m)?.needsData ? m : 'dashboard'));
       if (!opts.keepFilters) scrollTop();
       try {
-        const result = await fetchYouTubeData(apiKey, q, limit);
+        const result = await fetchYouTubeData(apiKey, q, limit, controller.signal);
+        if (controller.signal.aborted) return;
         setData({ ...result, requestedLimit: limit });
         if (!opts.keepFilters) {
           setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
@@ -262,9 +390,10 @@ const YouTubeAnalyzer: React.FC = () => {
         }
         showToast(`${formatFullNumber(result.videos.length)} video berhasil dianalisis`, 'success');
       } catch (err) {
+        if (isAbortError(err)) return;
         showToast(err instanceof Error ? err.message : 'Gagal mengambil data', 'error');
       } finally {
-        setLoading(false);
+        if (fetchAbortRef.current === controller) setLoading(false);
       }
     },
     [apiKey, fetchLimit, ensureApiKey, clearSelection, showToast]
@@ -276,26 +405,33 @@ const YouTubeAnalyzer: React.FC = () => {
       clearSelection();
       if (!limitOverride) scrollTop();
       if (!force && trendingData?.query === region) return;
-      if (!ensureApiKey()) return;
+      if (!apiKey) return;
+
+      fetchAbortRef.current?.abort();
+      const controller = new AbortController();
+      fetchAbortRef.current = controller;
+
       setLoading(true);
       try {
-        const result = await fetchTrendingVideos(apiKey, Math.min(limitOverride ?? fetchLimit, TRENDING_RESULT_CAP), region);
+        const result = await fetchTrendingVideos(
+          apiKey,
+          Math.min(limitOverride ?? fetchLimit, TRENDING_RESULT_CAP),
+          region,
+          controller.signal
+        );
+        if (controller.signal.aborted) return;
         setTrendingData(result);
         showToast(`Trending ${TRENDING_REGIONS.find(r => r.code === region)?.name ?? region} dimuat`, 'success');
       } catch (err) {
+        if (isAbortError(err)) return;
         showToast(err instanceof Error ? err.message : 'Gagal memuat trending', 'error');
       } finally {
-        setLoading(false);
+        if (fetchAbortRef.current === controller) setLoading(false);
       }
     },
-    [apiKey, fetchLimit, trendingRegion, trendingData, ensureApiKey, clearSelection, showToast]
+    [apiKey, fetchLimit, trendingRegion, trendingData, clearSelection, showToast]
   );
 
-  /**
-   * Ubah "Jumlah video yang diambil" dan perbarui hasil yang sedang tampil:
-   * - lebih sedikit → potong hasil yang sudah dimuat (tanpa API, urutan sama dengan hasil API: terbaru / urutan playlist / relevansi)
-   * - lebih banyak → analisis ulang (filter tetap), kecuali semua video sudah dimuat
-   */
   const handleFetchLimitChange = useCallback(
     (limit: FetchLimit) => {
       setFetchLimit(limit);
@@ -303,7 +439,7 @@ const YouTubeAnalyzer: React.FC = () => {
         if (trendingData && Math.min(limit, TRENDING_RESULT_CAP) !== trendingData.videos.length) handleTrending(trendingRegion, true, limit);
         return;
       }
-      if (!data?.query || loading) return;
+      if (!data?.query || loading || data.channelId?.startsWith('UCdemo')) return;
       const loaded = data.videos.length;
       const requested = data.requestedLimit ?? loaded;
       if (limit < loaded) {
@@ -317,7 +453,6 @@ const YouTubeAnalyzer: React.FC = () => {
         setData({ ...data, requestedLimit: limit });
         return;
       }
-      // Sudah semua: channel/playlist punya lebih sedikit video dari permintaan sebelumnya, atau batas pencarian API
       const exhausted = loaded < requested || (data.source === 'search' && loaded >= SEARCH_RESULT_CAP);
       if (exhausted) {
         setData({ ...data, requestedLimit: limit });
@@ -352,6 +487,11 @@ const YouTubeAnalyzer: React.FC = () => {
     writeLocal('yt_api_key_v5', key);
   };
 
+  const removeApiKey = () => {
+    setApiKey('');
+    removeLocal('yt_api_key_v5');
+  };
+
   // --- Daftar video aktif ---
   const sourceVideos = useMemo(() => {
     if (mode === 'saved') return savedVideos;
@@ -362,6 +502,32 @@ const YouTubeAnalyzer: React.FC = () => {
   const filteredVideos = useMemo(() => applyFilters(sourceVideos, filters), [sourceVideos, filters]);
   const savedIds = useMemo(() => new Set(savedVideos.map(v => v.id)), [savedVideos]);
   const activeFilterCount = countActiveFilters(filters);
+
+  const activeFilterPills = useMemo(() => {
+    const pills: Array<{ key: string; label: string; clear: () => void }> = [];
+    if (filters.dateRange !== 'all') {
+      pills.push({ key: 'date', label: DATE_LABELS[filters.dateRange], clear: () => setFilters(f => ({ ...f, dateRange: 'all' })) });
+    }
+    if (filters.duration !== 'all') {
+      pills.push({ key: 'duration', label: DURATION_LABELS[filters.duration], clear: () => setFilters(f => ({ ...f, duration: 'all' })) });
+    }
+    if (filters.minViews > 0) {
+      pills.push({ key: 'views', label: `Views ≥ ${formatNumber(filters.minViews)}`, clear: () => setFilters(f => ({ ...f, minViews: 0 })) });
+    }
+    if (filters.minLikes > 0) {
+      pills.push({ key: 'likes', label: `Likes ≥ ${formatNumber(filters.minLikes)}`, clear: () => setFilters(f => ({ ...f, minLikes: 0 })) });
+    }
+    if (filters.minER > 0) {
+      pills.push({ key: 'er', label: `ER ≥ ${filters.minER}%`, clear: () => setFilters(f => ({ ...f, minER: 0 })) });
+    }
+    if (filters.keyword.trim()) {
+      pills.push({ key: 'kw', label: `"${filters.keyword.trim()}"`, clear: () => setFilters(f => ({ ...f, keyword: '' })) });
+    }
+    if (filters.outliersOnly) {
+      pills.push({ key: 'outlier', label: 'Hanya outlier', clear: () => setFilters(f => ({ ...f, outliersOnly: false })) });
+    }
+    return pills;
+  }, [filters]);
 
   const exportName = useMemo(() => {
     if (mode === 'saved') return 'Tersimpan';
@@ -440,18 +606,24 @@ const YouTubeAnalyzer: React.FC = () => {
     handleAnalyze(channelId);
   };
 
-  // --- Render helpers ---
   const regionName = TRENDING_REGIONS.find(r => r.code === (trendingData?.query ?? trendingRegion))?.name;
-  const hasGridData = mode === 'saved' ? savedVideos.length > 0 : mode === 'trending' ? !!trendingData : !!data;
+  const canFetchMore =
+    Boolean(data?.query && !data.channelId?.startsWith('UCdemo') && (data.source === 'channel' || data.source === 'playlist'));
+  const handleFetchMore = canFetchMore
+    ? (limit: FetchLimit) => {
+        setFetchLimit(limit);
+        handleAnalyze(data!.query!, { limit, keepFilters: true });
+      }
+    : undefined;
 
   const chipBar = (
-    <div className="sticky top-14 z-30 -mx-4 mb-4 bg-background px-4 py-3 sm:-mx-6 sm:px-6">
-      <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
+    <div className="sticky top-14 z-30 -mx-4 mb-4 border-b border-border/60 bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:-mx-6 sm:px-6">
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
         {mode === 'trending' && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <button type="button" className="yt-chip" data-active="true">
-                <Flame className="h-4 w-4" /> {regionName ?? trendingRegion} <ChevronDown className="h-4 w-4" />
+                <Flame className="h-4 w-4" aria-hidden="true" /> {regionName ?? trendingRegion} <ChevronDown className="h-4 w-4" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-80 w-56 overflow-y-auto rounded-xl py-2 shadow-popover">
@@ -464,7 +636,7 @@ const YouTubeAnalyzer: React.FC = () => {
                     handleTrending(r.code);
                   }}
                 >
-                  <span className="w-5">{r.code === (trendingData?.query ?? trendingRegion) && <Check className="h-4 w-4" />}</span>
+                  <span className="w-4">{r.code === (trendingData?.query ?? trendingRegion) && <Check className="h-4 w-4" />}</span>
                   {r.name}
                   <span className="ml-auto text-xs text-muted-foreground">{r.code}</span>
                 </DropdownMenuItem>
@@ -472,124 +644,206 @@ const YouTubeAnalyzer: React.FC = () => {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {(['all', 'long', 'shorts'] as ContentTypeFilter[]).map(type => (
-          <button
-            key={type}
-            type="button"
-            className="yt-chip"
-            data-active={filters.contentType === type}
-            onClick={() => setFilters(f => ({ ...f, contentType: type }))}
-          >
-            {type === 'all' ? 'Semua' : type === 'long' ? 'Video' : 'Shorts'}
-          </button>
-        ))}
-        <span className="h-6 w-px shrink-0 bg-border" aria-hidden="true" />
-        {QUICK_SORTS.map(sort => (
-          <button
-            key={sort}
-            type="button"
-            className="yt-chip"
-            data-active={filters.sort === sort}
-            onClick={() => setFilters(f => ({ ...f, sort }))}
-          >
-            {SORT_LABELS[sort]}
-          </button>
-        ))}
-        {!QUICK_SORTS.includes(filters.sort) && (
-          <button type="button" className="yt-chip" data-active="true" onClick={() => setFiltersOpen(true)}>
-            {SORT_LABELS[filters.sort]}
-          </button>
-        )}
-        {filters.outliersOnly ? (
-          <button type="button" className="yt-chip" data-active="true" onClick={() => setFilters(f => ({ ...f, outliersOnly: false }))}>
-            Outlier <X className="h-4 w-4" />
-          </button>
-        ) : (
-          <button type="button" className="yt-chip" onClick={() => setFilters(f => ({ ...f, outliersOnly: true }))}>
-            Outlier
-          </button>
-        )}
-        <button type="button" className="yt-chip ml-auto" data-active={activeFilterCount > 0} onClick={() => setFiltersOpen(true)}>
-          <SlidersHorizontal className="h-4 w-4" />
+
+        {/* Segmented Format Control */}
+        <div className="inline-flex shrink-0 items-center rounded-lg bg-secondary p-0.5" role="group" aria-label="Jenis konten">
+          {(['all', 'long', 'shorts'] as ContentTypeFilter[]).map(type => {
+            const active = filters.contentType === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setFilters(f => ({ ...f, contentType: type }))}
+                className={cn(
+                  'min-h-10 rounded-md px-3 text-sm font-medium transition-colors sm:min-h-8',
+                  active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {type === 'all' ? 'Semua' : type === 'long' ? 'Video' : 'Shorts'}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sort Dropdown */}
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="yt-chip" aria-label={`Urutan: ${SORT_LABELS[filters.sort]}`}>
+              <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              <span>{SORT_LABELS[filters.sort]}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-52">
+            {ALL_SORTS.map(sort => (
+              <DropdownMenuItem key={sort} onSelect={() => setFilters(f => ({ ...f, sort }))} className="gap-2.5 py-2">
+                <span className="w-4">{filters.sort === sort && <Check className="h-4 w-4" />}</span>
+                <span>{SORT_LABELS[sort]}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Outlier toggle */}
+        <button
+          type="button"
+          className="yt-chip"
+          aria-pressed={filters.outliersOnly}
+          data-active={filters.outliersOnly}
+          onClick={() => setFilters(f => ({ ...f, outliersOnly: !f.outliersOnly }))}
+        >
+          Outlier {filters.outliersOnly && <X className="h-3.5 w-3.5" aria-hidden="true" />}
+        </button>
+
+        {/* Filter modal trigger */}
+        <button type="button" className="yt-chip" data-active={activeFilterCount > 0} onClick={() => setFiltersOpen(true)}>
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
           Filter{activeFilterCount > 0 && ` · ${activeFilterCount}`}
         </button>
+
+        {/* Grid / Table view switcher */}
+        <div className="ml-auto inline-flex shrink-0 items-center rounded-lg bg-secondary p-0.5" role="group" aria-label="Tampilan daftar video">
+          <button
+            type="button"
+            aria-pressed={viewMode === 'grid'}
+            aria-label="Tampilan grid"
+            title="Tampilan grid"
+            onClick={() => setViewMode('grid')}
+            className={cn(
+              'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-8 sm:w-8',
+              viewMode === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-pressed={viewMode === 'table'}
+            aria-label="Tampilan tabel"
+            title="Tampilan tabel"
+            onClick={() => setViewMode('table')}
+            className={cn(
+              'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-8 sm:w-8',
+              viewMode === 'table' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Table2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
   );
 
   const resultsToolbar = (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-sm text-muted-foreground">
-        Menampilkan <span className="font-medium text-foreground">{formatFullNumber(filteredVideos.length)}</span> dari{' '}
-        {formatFullNumber(sourceVideos.length)} video
-        {activeFilterCount > 0 && (
-          <button type="button" className="ml-2 text-primary hover:underline" onClick={() => setFilters(f => ({ ...DEFAULT_FILTERS, contentType: f.contentType, sort: f.sort }))}>
-            Reset filter
+    <div className="mb-5 space-y-2.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm tabular-nums text-muted-foreground">
+          Menampilkan <span className="font-medium text-foreground">{formatFullNumber(filteredVideos.length)}</span> dari{' '}
+          {formatFullNumber(sourceVideos.length)} video
+        </p>
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:px-0">
+          <button type="button" className="yt-pill" onClick={() => copyLinks(filteredVideos)} disabled={!filteredVideos.length}>
+            <Link2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> Salin link
           </button>
-        )}
-      </p>
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:px-0">
-        <button type="button" className="yt-pill" onClick={() => copyLinks(filteredVideos)} disabled={!filteredVideos.length}>
-          <Link2 className="h-5 w-5" strokeWidth={1.75} /> Salin semua link
-        </button>
-        <button
-          type="button"
-          className="yt-pill"
-          onClick={() => downloadZip(filteredVideos, exportName)}
-          disabled={!filteredVideos.length || busy}
-        >
-          <ImageDown className="h-5 w-5" strokeWidth={1.75} /> Thumbnail (ZIP)
-        </button>
-        <button
-          type="button"
-          className="yt-pill"
-          onClick={() => openExport('filtered')}
-          disabled={!filteredVideos.length}
-        >
-          <FileDown className="h-5 w-5" strokeWidth={1.75} /> Ekspor
-        </button>
-        <button
-          type="button"
-          className={cn('yt-pill', selectMode && 'bg-inverse text-inverse-foreground hover:bg-inverse')}
-          onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
-          disabled={!filteredVideos.length}
-        >
-          <CheckSquare className="h-5 w-5" strokeWidth={1.75} /> {selectMode ? 'Batal pilih' : 'Pilih'}
-        </button>
+          <button
+            type="button"
+            className="yt-pill"
+            onClick={() => downloadZip(filteredVideos, exportName)}
+            disabled={!filteredVideos.length || busy}
+          >
+            <ImageDown className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> Thumbnail ZIP
+          </button>
+          <button
+            type="button"
+            className={cn('yt-pill', selectMode && 'bg-inverse text-inverse-foreground hover:bg-inverse')}
+            onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
+            disabled={!filteredVideos.length}
+          >
+            <CheckSquare className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> {selectMode ? 'Batal pilih' : 'Pilih'}
+          </button>
+          <button
+            type="button"
+            className="yt-pill-blue"
+            onClick={() => openExport('filtered')}
+            disabled={!filteredVideos.length}
+          >
+            <FileDown className="h-4 w-4" strokeWidth={1.85} aria-hidden="true" /> Ekspor
+          </button>
+        </div>
       </div>
+
+      {activeFilterPills.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter aktif">
+          {activeFilterPills.map(p => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={p.clear}
+              aria-label={`Hapus filter ${p.label}`}
+              className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border bg-secondary/70 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <span>{p.label}</span>
+              <X className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFilters(f => ({ ...DEFAULT_FILTERS, contentType: f.contentType, sort: f.sort }))}
+            className="ml-1 text-xs font-medium text-primary hover:underline"
+          >
+            Reset semua
+          </button>
+        </div>
+      )}
     </div>
   );
 
   const homeEmpty = (
-    <div className="mx-auto flex max-w-2xl flex-col items-center px-4 py-12 text-center sm:py-20">
-      <svg viewBox="0 0 28 20" className="h-14 w-20" aria-hidden="true">
-        <rect width="28" height="20" rx="5.5" fill="hsl(var(--yt-red))" />
-        <path d="M11.2 5.6v8.8l7.6-4.4z" fill="#fff" />
+    <div className="mx-auto flex max-w-2xl flex-col items-center px-2 py-10 text-center sm:px-4 sm:py-16">
+      <svg viewBox="0 0 32 32" className="h-14 w-14 shadow-sm" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#0F172A" />
+        <rect x="6.5" y="18" width="4.5" height="7.5" rx="1.6" fill="#3DA5FF" />
+        <rect x="13.75" y="12.5" width="4.5" height="13" rx="1.6" fill="#2DD4BF" />
+        <rect x="21" y="6.5" width="4.5" height="19" rx="1.6" fill="#FF3B30" />
       </svg>
-      <h1 className="mt-6 text-2xl font-bold text-foreground sm:text-[28px]">Analisis channel YouTube apa pun</h1>
+
+      <h1 className="mt-6 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+        Analitik channel YouTube berbasis data nyata
+      </h1>
       <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
-        Tempel <b className="font-medium text-foreground">@handle</b>, URL channel, URL playlist, URL video, atau ketik kata kunci di kolom
-        pencarian. Dapatkan statistik, skor judul &amp; thumbnail, jadwal upload terbaik, dan ekspor data.
+        Tempel <b className="font-medium text-foreground">@handle</b>, URL channel, playlist, atau kata kunci di kolom
+        pencarian. Dapatkan deteksi outlier, skor judul &amp; thumbnail <span className="whitespace-nowrap">A–F</span>, peta panas jadwal upload, dan ekspor laporan.
       </p>
 
       {!apiKey ? (
-        <div className="yt-card mt-8 w-full max-w-md p-5 text-left">
+        <div className="yt-card mt-7 w-full max-w-lg p-5 text-left">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <KeyRound className="h-5 w-5" />
+              <KeyRound className="h-5 w-5" aria-hidden="true" />
             </div>
-            <div>
-              <h2 className="font-medium text-foreground">Langkah pertama: atur API Key</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Aplikasi butuh YouTube Data API v3 key (gratis, 10.000 unit/hari).</p>
-              <button type="button" className="yt-pill-blue mt-4" onClick={() => setSettingsOpen(true)}>
-                Atur API Key
-              </button>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold text-foreground">Mulai langsung atau hubungkan API Key</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Jelajahi seluruh fitur dengan data contoh luring, atau masukkan YouTube Data API v3 key gratis (10.000 unit/hari) untuk menganalisis channel mana pun.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className="yt-pill-blue" onClick={() => loadDemoData('dashboard')}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+                </button>
+                <button type="button" className="yt-pill" onClick={() => setSettingsOpen(true)}>
+                  <KeyRound className="h-4 w-4" aria-hidden="true" /> Atur API Key
+                </button>
+              </div>
             </div>
           </div>
         </div>
       ) : (
         <>
-          <div className="mt-8 flex flex-wrap justify-center gap-2">
+          <div className="mt-7 flex flex-wrap justify-center gap-2">
+            <button type="button" className="yt-pill-blue" onClick={() => loadDemoData('dashboard')}>
+              <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+            </button>
             {EXAMPLE_QUERIES.map(q => (
               <button
                 key={q}
@@ -600,26 +854,26 @@ const YouTubeAnalyzer: React.FC = () => {
                   handleAnalyze(q);
                 }}
               >
-                <Search className="h-4 w-4" /> {q.length > 28 ? `${q.slice(0, 28)}…` : q}
+                <Search className="h-3.5 w-3.5" aria-hidden="true" /> {q}
               </button>
             ))}
           </div>
-          {getSearchHistory().length > 0 && (
-            <div className="mt-8 w-full max-w-md text-left">
-              <h2 className="mb-2 text-sm font-medium text-foreground">Lanjutkan dari riwayat</h2>
+          {searchHistory.length > 0 && (
+            <div className="mt-7 w-full max-w-md text-left">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lanjutkan dari riwayat</h2>
               <ul className="yt-card divide-y divide-border overflow-hidden">
-                {getSearchHistory().slice(0, 4).map(h => (
+                {searchHistory.slice(0, 4).map(h => (
                   <li key={h.timestamp}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-secondary"
+                      className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-secondary"
                       onClick={() => {
                         setQuery(h.query);
                         handleAnalyze(h.query);
                       }}
                     >
-                      <HistoryIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="flex-1 truncate">{h.title || h.query}</span>
+                      <HistoryIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="flex-1 truncate font-medium">{h.title || h.query}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(h.timestamp)}</span>
                     </button>
                   </li>
@@ -630,18 +884,32 @@ const YouTubeAnalyzer: React.FC = () => {
         </>
       )}
 
-      <div className="mt-12 grid w-full grid-cols-2 gap-3 text-left sm:grid-cols-4">
-        {[
-          { icon: BarChart3, title: 'Statistik', text: 'Views, ER, outlier, tag' },
-          { icon: Gauge, title: 'Skor', text: 'Judul & thumbnail A–F' },
-          { icon: CalendarClock, title: 'Jadwal', text: 'Hari & jam upload terbaik' },
-          { icon: Lightbulb, title: 'Content Gap', text: 'Topik trending terlewat' },
-        ].map(({ icon: Icon, title, text }) => (
-          <div key={title} className="rounded-xl bg-secondary p-4">
-            <Icon className="h-5 w-5 text-foreground" strokeWidth={1.75} />
-            <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{text}</p>
-          </div>
+      <div className="mt-10 grid w-full grid-cols-2 gap-3 text-left sm:grid-cols-4">
+        {([
+          { icon: BarChart3, title: 'Statistik', text: 'Views, ER, outlier & tag', target: 'insights' as AnalysisMode },
+          {
+            icon: Gauge,
+            title: 'Skor Konten',
+            text: (
+              <>
+                Judul &amp; thumbnail <span className="whitespace-nowrap">A–F</span>
+              </>
+            ),
+            target: 'title_score' as AnalysisMode,
+          },
+          { icon: CalendarClock, title: 'Jadwal Upload', text: 'Peta panas 7×24 jam', target: 'schedule' as AnalysisMode },
+          { icon: Lightbulb, title: 'Content Gap', text: 'Topik trending terlewat', target: 'content_gap' as AnalysisMode },
+        ]).map(({ icon: Icon, title, text, target }) => (
+          <button
+            key={title}
+            type="button"
+            onClick={() => (data ? handleNavigate(target) : loadDemoData(target))}
+            className="group rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-secondary/60"
+          >
+            <Icon className="h-5 w-5 text-primary" strokeWidth={1.75} aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{text}</p>
+          </button>
         ))}
       </div>
     </div>
@@ -650,7 +918,7 @@ const YouTubeAnalyzer: React.FC = () => {
   const renderGridMode = () => {
     if (loading) {
       return (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-10 pt-16 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-10 pt-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -664,22 +932,41 @@ const YouTubeAnalyzer: React.FC = () => {
         <EmptyState
           icon={Flame}
           title="Trending belum dimuat"
-          description={apiKey ? 'Pilih wilayah lalu muat video yang sedang trending.' : 'Atur API Key untuk memuat video trending.'}
+          description={apiKey ? 'Pilih wilayah lalu muat video yang sedang trending saat ini.' : 'Atur API Key untuk memuat video trending, atau jelajahi data contoh lebih dulu.'}
           action={
-            <button type="button" className="yt-pill-primary" onClick={() => (apiKey ? handleTrending(trendingRegion, true) : setSettingsOpen(true))}>
-              {apiKey ? 'Muat trending' : 'Atur API Key'}
-            </button>
+            <>
+              <button
+                type="button"
+                className="yt-pill-blue"
+                onClick={() => (apiKey ? handleTrending(trendingRegion, true) : setSettingsOpen(true))}
+              >
+                {apiKey ? 'Muat trending' : 'Atur API Key'}
+              </button>
+              {!apiKey && (
+                <button type="button" className="yt-pill" onClick={() => loadDemoData('dashboard')}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+                </button>
+              )}
+            </>
           }
         />
       );
     }
     if (mode === 'saved' && savedVideos.length === 0) {
       return (
-        <EmptyState
-          icon={Bookmark}
-          title="Belum ada video tersimpan"
-          description="Simpan video lewat ikon bookmark di thumbnail, menu ⋮, atau pilih beberapa sekaligus dengan tombol Pilih."
-        />
+        <>
+          <PageHeader title="Tersimpan" subtitle="0 video • disimpan di browser ini" className="pt-2" />
+          <EmptyState
+            icon={Bookmark}
+            title="Belum ada video tersimpan"
+            description="Simpan video lewat ikon bookmark di thumbnail, menu ⋮, atau pilih beberapa sekaligus dengan tombol Pilih."
+            action={
+              <button type="button" className="yt-pill-primary" onClick={() => handleNavigate('dashboard')}>
+                Kembali ke Beranda
+              </button>
+            }
+          />
+        </>
       );
     }
 
@@ -688,10 +975,7 @@ const YouTubeAnalyzer: React.FC = () => {
         {mode === 'dashboard' && data && <ChannelHeader data={data} />}
         {mode === 'trending' && trendingData && <ChannelHeader data={trendingData} regionName={regionName} />}
         {mode === 'saved' && (
-          <div className="mb-4">
-            <h1 className="yt-page-title">Tersimpan</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{formatFullNumber(savedVideos.length)} video • disimpan di browser ini</p>
-          </div>
+          <PageHeader title="Tersimpan" subtitle={`${formatFullNumber(savedVideos.length)} video • disimpan di browser ini`} className="pt-2" />
         )}
         {chipBar}
         {resultsToolbar}
@@ -701,15 +985,28 @@ const YouTubeAnalyzer: React.FC = () => {
             title="Tidak ada video yang cocok"
             description="Coba ubah jenis konten atau longgarkan filter."
             action={
-              <button type="button" className="yt-pill" onClick={() => setFilters(DEFAULT_FILTERS)}>
+              <button type="button" className="yt-pill-primary" onClick={() => setFilters(DEFAULT_FILTERS)}>
                 Reset semua filter
               </button>
             }
+          />
+        ) : viewMode === 'table' ? (
+          <VideoTable
+            videos={filteredVideos}
+            sort={filters.sort}
+            onSortChange={sort => setFilters(f => ({ ...f, sort }))}
+            savedIds={savedIds}
+            onSaveToggle={handleSaveToggle}
+            onPreview={handlePreview}
+            selectable={selectMode}
+            selectedIds={selectedIds}
+            onSelect={handleSelect}
           />
         ) : (
           <VideoGrid
             videos={filteredVideos}
             contentType={filters.contentType}
+            sort={filters.sort}
             onShowAllShorts={() => {
               setFilters(f => ({ ...f, contentType: 'shorts' }));
               scrollTop();
@@ -728,39 +1025,45 @@ const YouTubeAnalyzer: React.FC = () => {
   };
 
   const renderAnalysisMode = () => {
-    const needData = (icon: typeof BarChart3, feature: string) => <NeedDataState icon={icon} feature={feature} onFocusSearch={focusSearch} />;
+    const needData = (icon: typeof BarChart3, feature: string) => (
+      <NeedDataState icon={icon} feature={feature} onFocusSearch={focusSearch} onLoadDemo={() => loadDemoData(mode)} />
+    );
     if (loading) return <PageFallback />;
     switch (mode) {
       case 'insights':
-        return data ? <InsightsDashboard data={data} onPreview={handlePreview} /> : needData(BarChart3, 'Statistik Channel');
+        return data ? (
+          <InsightsDashboard data={data} onPreview={handlePreview} fetchLimit={fetchLimit} onFetchMore={handleFetchMore} />
+        ) : (
+          needData(BarChart3, 'Statistik Channel')
+        );
       case 'title_score':
         return data?.videos.length ? <TitleScoreAnalyzer videos={data.videos} onPreview={handlePreview} /> : needData(Gauge, 'Skor Judul & Thumbnail');
       case 'schedule':
         return data?.videos.length ? (
-          <UploadScheduleAnalyzer
-            data={data}
-            onPreview={handlePreview}
-            fetchLimit={fetchLimit}
-            onFetchMore={
-              data.query && (data.source === 'channel' || data.source === 'playlist')
-                ? limit => {
-                    setFetchLimit(limit);
-                    handleAnalyze(data.query!, { limit, keepFilters: true });
-                  }
-                : undefined
-            }
-          />
+          <UploadScheduleAnalyzer data={data} onPreview={handlePreview} fetchLimit={fetchLimit} onFetchMore={handleFetchMore} />
         ) : (
           needData(CalendarClock, 'Jadwal Upload')
         );
       case 'content_gap':
         return data?.videos.length ? (
-          <ContentGapAnalyzer channelVideos={data.videos} channelTitle={data.channelTitle} apiKey={apiKey} onToast={showToast} onRequireApiKey={() => setSettingsOpen(true)} />
+          <ContentGapAnalyzer
+            channelVideos={data.videos}
+            channelTitle={data.channelTitle}
+            apiKey={apiKey}
+            onToast={showToast}
+            onRequireApiKey={() => setSettingsOpen(true)}
+          />
         ) : (
           needData(Lightbulb, 'Content Gap')
         );
       case 'benchmark':
-        return <CompetitorBenchmark apiKey={apiKey} onRequireApiKey={() => setSettingsOpen(true)} defaultChannel={data?.source === 'channel' ? data.channelStats?.customUrl || data.channelId : undefined} />;
+        return (
+          <CompetitorBenchmark
+            apiKey={apiKey}
+            onRequireApiKey={() => setSettingsOpen(true)}
+            defaultChannel={data?.source === 'channel' && !data.channelId?.startsWith('UCdemo') ? data.channelStats?.customUrl || data.channelId : undefined}
+          />
+        );
       case 'history':
         return (
           <SearchHistoryPage
@@ -782,24 +1085,33 @@ const YouTubeAnalyzer: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-[500] focus:rounded-full focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow-popover"
+      >
+        Langsung ke konten utama
+      </a>
+
       <AppHeader
-        onMenu={() => (window.matchMedia('(min-width: 768px)').matches ? setSidebarExpanded(x => !x) : setMobileNavOpen(true))}
+        onMenu={() => setSidebarExpanded(x => !x)}
+        sidebarExpanded={sidebarExpanded}
         onLogo={() => handleNavigate('dashboard')}
         query={query}
         setQuery={setQuery}
         onSearch={handleAnalyze}
-        onToast={showToast}
+        fetchLimit={fetchLimit}
+        onFetchLimitChange={handleFetchLimitChange}
         searchInputRef={searchInputRef}
         darkMode={darkMode}
-        onToggleTheme={() => setDarkMode(d => !d)}
+        onToggleTheme={toggleDarkMode}
         onOpenSettings={() => setSettingsOpen(true)}
         quotaUsed={quotaUsed}
         hasApiKey={!!apiKey}
       />
 
       {loading && (
-        <div className="fixed left-0 right-0 top-0 z-[160] h-0.5 overflow-hidden" role="progressbar" aria-label="Memuat">
-          <div className="h-full w-1/3 animate-loading-bar bg-youtube-red" />
+        <div className="fixed left-0 right-0 top-0 z-[160] h-0.5 overflow-hidden" role="progressbar" aria-label="Memuat data">
+          <div className="h-full w-1/3 animate-loading-bar bg-primary" />
         </div>
       )}
 
@@ -818,34 +1130,45 @@ const YouTubeAnalyzer: React.FC = () => {
         onNavigate={handleNavigate}
         savedCount={savedVideos.length}
         hasData={!!data}
+        quotaUsed={quotaUsed}
       />
 
-      <main ref={mainRef} className={cn('pb-24 pt-14 md:pb-10', mainOffset)}>
-        <div className="mx-auto max-w-[2400px] px-4 pt-2 sm:px-6">
+      <main id="main-content" tabIndex={-1} ref={mainRef} className={cn('pb-24 pt-14 outline-none md:pb-10', mainOffset)}>
+        <div className="mx-auto max-w-[2400px] px-4 pt-3 sm:px-6">
           {GRID_MODES.includes(mode) ? (
             renderGridMode()
           ) : (
             <Suspense fallback={<PageFallback />}>
-              <div className="pt-4">{renderAnalysisMode()}</div>
+              <div className="pt-2">{renderAnalysisMode()}</div>
             </Suspense>
           )}
         </div>
       </main>
 
-      <BottomNav currentMode={mode} onNavigate={handleNavigate} onOpenMore={() => setMobileNavOpen(true)} />
+      <BottomNav
+        currentMode={mode}
+        onNavigate={handleNavigate}
+        onOpenMore={() => setMobileNavOpen(true)}
+        mobileNavOpen={mobileNavOpen}
+      />
 
       {/* Bar seleksi (multi-select) */}
       {selectMode && GRID_MODES.includes(mode) && (
         <div className="fixed bottom-[68px] left-1/2 z-[200] w-[calc(100%-24px)] max-w-3xl -translate-x-1/2 md:bottom-6">
           <div className="flex items-center gap-2 overflow-x-auto rounded-xl bg-inverse px-2 py-2 text-inverse-foreground shadow-popover no-scrollbar">
-            <button type="button" onClick={clearSelection} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10 dark:hover:bg-black/10" aria-label="Batal">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-inverse-foreground/10"
+              aria-label="Batalkan mode pilih"
+            >
               <X className="h-5 w-5" />
             </button>
-            <span className="shrink-0 pr-2 text-sm font-medium">{selectedList.length} dipilih</span>
+            <span className="shrink-0 pr-1 text-sm font-medium tabular-nums">{selectedList.length} dipilih</span>
             <button
               type="button"
               onClick={() => setSelectedIds(allSelected ? new Set() : new Set(filteredVideos.map(v => v.id)))}
-              className="h-9 shrink-0 rounded-full px-3 text-sm font-medium text-[#3ea6ff] hover:bg-white/10 dark:text-primary dark:hover:bg-black/10"
+              className="min-h-10 shrink-0 rounded-full px-3 text-sm font-medium text-inverse-primary hover:bg-inverse-foreground/10"
             >
               {allSelected ? 'Batalkan semua' : 'Pilih semua'}
             </button>
@@ -853,21 +1176,23 @@ const YouTubeAnalyzer: React.FC = () => {
               {[
                 {
                   label: mode === 'saved' ? 'Hapus' : 'Simpan',
+                  ariaLabel: mode === 'saved' ? 'Hapus video terpilih dari Tersimpan' : 'Simpan video terpilih',
                   icon: mode === 'saved' ? BookmarkMinus : Bookmark,
                   onClick: handleBatchSave,
                 },
-                { label: 'Salin link', icon: Link2, onClick: () => copyLinks(selectedList) },
-                { label: 'ZIP', icon: ImageDown, onClick: () => downloadZip(selectedList, `${exportName}_terpilih`) },
-                { label: 'Ekspor', icon: FileDown, onClick: () => openExport('selected') },
-              ].map(({ label, icon: Icon, onClick }) => (
+                { label: 'Salin link', ariaLabel: 'Salin link video terpilih', icon: Link2, onClick: () => copyLinks(selectedList) },
+                { label: 'ZIP', ariaLabel: 'Unduh ZIP thumbnail terpilih', icon: ImageDown, onClick: () => downloadZip(selectedList, `${exportName}_terpilih`) },
+                { label: 'Ekspor', ariaLabel: 'Ekspor video terpilih', icon: FileDown, onClick: () => openExport('selected') },
+              ].map(({ label, ariaLabel, icon: Icon, onClick }) => (
                 <button
                   key={label}
                   type="button"
                   onClick={onClick}
                   disabled={!selectedList.length || busy}
-                  className="flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium hover:bg-white/10 disabled:opacity-40 dark:hover:bg-black/10"
+                  aria-label={ariaLabel}
+                  className="flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-medium hover:bg-inverse-foreground/10 disabled:opacity-40"
                 >
-                  <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span>
+                  <Icon className="h-4 w-4" aria-hidden="true" /> <span className="hidden sm:inline">{label}</span>
                 </button>
               ))}
             </div>
@@ -875,46 +1200,64 @@ const YouTubeAnalyzer: React.FC = () => {
         </div>
       )}
 
-      <VideoPreviewModal
-        video={previewVideo}
-        isOpen={!!previewVideo}
-        onClose={() => setPreviewId(null)}
-        onNext={() => previewIndex < filteredVideos.length - 1 && setPreviewId(filteredVideos[previewIndex + 1].id)}
-        onPrev={() => previewIndex > 0 && setPreviewId(filteredVideos[previewIndex - 1].id)}
-        hasNext={previewIndex >= 0 && previewIndex < filteredVideos.length - 1}
-        hasPrev={previewIndex > 0}
-        position={previewIndex >= 0 ? { index: previewIndex, total: filteredVideos.length } : undefined}
-        onSaveToggle={handleSaveToggle}
-        onAnalyzeChannel={handleAnalyzeChannel}
-        isSaved={previewVideo ? savedIds.has(previewVideo.id) : false}
-        onToast={showToast}
-      />
+      <Suspense fallback={null}>
+        {previewVideo && (
+          <VideoPreviewModal
+            video={previewVideo}
+            isOpen={!!previewVideo}
+            onClose={() => setPreviewId(null)}
+            onNext={() => previewIndex < filteredVideos.length - 1 && setPreviewId(filteredVideos[previewIndex + 1].id)}
+            onPrev={() => previewIndex > 0 && setPreviewId(filteredVideos[previewIndex - 1].id)}
+            hasNext={previewIndex >= 0 && previewIndex < filteredVideos.length - 1}
+            hasPrev={previewIndex > 0}
+            position={previewIndex >= 0 ? { index: previewIndex, total: filteredVideos.length } : undefined}
+            onSaveToggle={handleSaveToggle}
+            onAnalyzeChannel={handleAnalyzeChannel}
+            isSaved={savedIds.has(previewVideo.id)}
+            onToast={showToast}
+          />
+        )}
 
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        scopes={{ filtered: filteredVideos, all: sourceVideos, selected: selectMode ? selectedList : [] }}
-        defaultScope={exportScope}
-        context={{
-          title: mode === 'saved' ? 'Video tersimpan' : mode === 'trending' ? `Trending ${regionName ?? ''}`.trim() : data?.channelTitle || 'Analisis YouTube',
-          source: mode === 'saved' ? 'saved' : mode === 'trending' ? 'trending' : data?.source,
-          query: mode === 'trending' ? trendingData?.query : data?.query,
-          channelStats: mode === 'dashboard' && data?.source === 'channel' ? data.channelStats : undefined,
-        }}
-        filterNote={describeFilters(filters)}
-        onToast={showToast}
-      />
+        {exportOpen && (
+          <ExportDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            scopes={{ filtered: filteredVideos, all: sourceVideos, selected: selectMode ? selectedList : [] }}
+            defaultScope={exportScope}
+            context={{
+              title: mode === 'saved' ? 'Video tersimpan' : mode === 'trending' ? `Trending ${regionName ?? ''}`.trim() : data?.channelTitle || 'Analisis YouTube',
+              source: mode === 'saved' ? 'saved' : mode === 'trending' ? 'trending' : data?.source,
+              query: mode === 'trending' ? trendingData?.query : data?.query,
+              channelStats: mode === 'dashboard' && data?.source === 'channel' ? data.channelStats : undefined,
+            }}
+            filterNote={describeFilters(filters)}
+            onToast={showToast}
+          />
+        )}
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} apiKey={apiKey} onSave={saveApiKey} onToast={showToast} />
+        {settingsOpen && (
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            apiKey={apiKey}
+            onSave={saveApiKey}
+            onRemoveKey={removeApiKey}
+            themePref={themePref}
+            onThemePrefChange={applyThemePreference}
+            quotaUsed={quotaUsed}
+            onToast={showToast}
+          />
+        )}
 
-      <FilterDialog
-        open={filtersOpen}
-        onOpenChange={setFiltersOpen}
-        filters={filters}
-        onChange={setFilters}
-        fetchLimit={fetchLimit}
-        onFetchLimitChange={handleFetchLimitChange}
-      />
+        {filtersOpen && (
+          <FilterDialog
+            open={filtersOpen}
+            onOpenChange={setFiltersOpen}
+            filters={filters}
+            onChange={setFilters}
+          />
+        )}
+      </Suspense>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} raised={selectMode && GRID_MODES.includes(mode)} />
     </div>

@@ -164,7 +164,7 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
   y += 21;
 
   // Top 10
-  const top = [...rows].sort((a, b) => b.views - a.views).slice(0, 10);
+  const top = rows.toSorted((a, b) => b.views - a.views).slice(0, 10);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...INK);

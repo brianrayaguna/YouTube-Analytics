@@ -159,9 +159,11 @@ describe('exports', () => {
     expect(json.channel.handle).toBe('@uji');
   });
 
-  it('HTML: escapes content and lists all videos', async () => {
-    const html = await buildHtml(report, null).text();
+  it('HTML: escapes content, avatar URL, labels score columns distinctly, and lists all videos', async () => {
+    const html = await buildHtml(report, null, { dataUrl: 'data:image/png;base64,"onload=x', width: 1, height: 1 }).text();
     expect(html).toContain('Video &quot;pertama&quot;, dengan koma');
+    expect(html).toContain('&quot;onload=x');
+    expect(html).toContain('<th>Skor Judul</th><th>Skor Thumbnail</th>');
     expect(html.match(/class="thumb"/g)).toHaveLength(3);
   });
 

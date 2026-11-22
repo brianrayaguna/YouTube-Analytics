@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Lightbulb, TrendingUp, TrendingDown, Globe, Info, TriangleAlert, CalendarX2, ChevronDown, RefreshCw, X, Clock } from 'lucide-react';
+import { Lightbulb, TrendingUp, TrendingDown, Globe, Info, TriangleAlert, CalendarX2, ChevronDown, RefreshCw, X, Clock, ArrowRight } from 'lucide-react';
 import { AnalyzedData, FetchLimit, VideoItem } from '../types';
 import {
   DropdownMenu,
@@ -9,7 +9,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { PageHeader, StatCard, SectionCard, EmptyState } from './common';
+import { PageHeader, StatCard, SectionCard, StudioTabs, EmptyState } from './common';
 import PeriodPicker from './PeriodPicker';
 import { formatNumber, formatFullNumber, formatDate, formatDateWithDay, formatTime, formatDateTimeLong } from '../lib/format';
 import {
@@ -52,7 +52,15 @@ interface UploadScheduleAnalyzerProps {
   onPreview?: (video: VideoItem) => void;
 }
 
+type ScheduleTab = 'heatmap' | 'ranking' | 'videos';
 type ListSort = 'newest' | 'oldest' | 'performance' | 'views' | 'time';
+
+const SCHEDULE_TABS: Array<{ id: ScheduleTab; label: string }> = [
+  { id: 'heatmap', label: 'Peta Panas & Ringkasan' },
+  { id: 'ranking', label: 'Peringkat Slot' },
+  { id: 'videos', label: 'Detail Video' },
+];
+
 const LIST_SORTS: Array<[ListSort, string]> = [
   ['newest', 'Terbaru'],
   ['oldest', 'Terlama'],
@@ -72,7 +80,6 @@ const FORMAT_KEY = 'yt_schedule_format';
 const COUNT_KEY = 'yt_schedule_count';
 const GROUPING_KEY = 'yt_schedule_grouping';
 const GROUPINGS = Object.keys(GROUPING_LABELS) as ScheduleGrouping[];
-/** Pilihan "N video terbaru" (0 = semua yang cocok) */
 const COUNT_OPTIONS = [10, 25, 50, 100, 250, 500, 1000, 0];
 const FETCH_STEPS: FetchLimit[] = [50, 100, 500, 1000, 5000];
 
@@ -106,20 +113,24 @@ const CONFIDENCE_STYLE: Record<SlotConfidence, string> = {
 /** Warna sel untuk metrik performa: biru (> 1×) atau merah (< 1×), makin pekat makin jauh dari rata-rata. */
 const performanceColor = (p: number) => {
   const strength = Math.min(1, Math.abs(Math.log10(p)) / 0.6);
-  return p >= 1 ? `hsl(var(--primary) / ${0.12 + strength * 0.88})` : `hsl(var(--yt-red) / ${0.12 + strength * 0.75})`;
+  return p >= 1 ? `hsl(var(--primary) / ${0.14 + strength * 0.86})` : `hsl(var(--destructive) / ${0.14 + strength * 0.72})`;
 };
 
 const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, fetchLimit, onFetchMore, onPreview }) => {
+  const [activeTab, setActiveTab] = useState<ScheduleTab>('heatmap');
+  const [selectedCell, setSelectedCell] = useState<{ day: number; hour: number } | null>(null);
   const [listFilter, setListFilter] = useState<{ match: SlotMatch; label: string } | null>(null);
   const [listSort, setListSort] = useState<ListSort>('newest');
   const [listLimit, setListLimit] = useState(LIST_PAGE);
-  const listRef = useRef<HTMLDivElement>(null);
-  /** Tampilkan daftar video untuk slot tertentu lalu gulir ke daftar */
+  const cellRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  /** Buka tab Detail Video terfilter pada slot tertentu */
   const showSlot = (match: SlotMatch, label: string) => {
     setListFilter({ match, label });
     setListLimit(LIST_PAGE);
-    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    setActiveTab('videos');
   };
+
   const [metric, setMetric] = useState<Metric>('performance');
   const [periodId, setPeriodId] = useState<PeriodId>(() => readLocal(PERIOD_KEY, v => (isPeriodId(v) ? v : 'all')));
   const [custom, setCustom] = useState<CustomPeriod>(() =>
@@ -170,13 +181,11 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
     const range = resolvePeriod(periodId, new Date(), custom);
     const inPeriod = filterByPeriod(allVideos, range);
     const matching = format === 'all' ? inPeriod : inPeriod.filter(v => (format === 'shorts' ? v.isShort : !v.isShort));
-    // N video terbaru dari yang cocok
     const videos =
       count > 0 && matching.length > count
-        ? [...matching].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, count)
+        ? matching.toSorted((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, count)
         : matching;
     const channelTotal = data.source === 'channel' ? data.channelStats?.videoCountRaw : undefined;
-    // "N terbaru" mempersempit rentang waktu sebenarnya → hitung upload/minggu dari rentang video itu sendiri
     const limited = videos.length < matching.length;
     return {
       range,
@@ -212,8 +221,9 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
       })
       .filter(r => !Number.isNaN(r.time));
   }, [scope.videos, analysis.points]);
+
   const listRows = useMemo(() => {
-    const rows = listFilter ? uploadRows.filter(r => matchesSlot(listFilter.match, r.day, r.hour)) : [...uploadRows];
+    const rows = listFilter ? uploadRows.filter(r => matchesSlot(listFilter.match, r.day, r.hour)) : uploadRows;
     const cmp: Record<ListSort, (a: (typeof rows)[number], b: (typeof rows)[number]) => number> = {
       newest: (a, b) => b.time - a.time,
       oldest: (a, b) => a.time - b.time,
@@ -221,8 +231,9 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
       views: (a, b) => b.video.viewCountRaw - a.video.viewCountRaw,
       time: (a, b) => a.minuteOfDay - b.minuteOfDay || b.time - a.time,
     };
-    return rows.sort(cmp[listSort]);
+    return rows.toSorted(cmp[listSort]);
   }, [uploadRows, listFilter, listSort]);
+
   const videos = scope.videos;
   const uploadsPerWeek = scope.days >= 1 ? videos.length / (scope.days / 7) : videos.length;
   const shortsCount = useMemo(() => allVideos.filter(v => v.isShort).length, [allVideos]);
@@ -231,7 +242,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
     if (!c.count) return undefined;
     if (metric === 'performance') return { backgroundColor: performanceColor(c.performance) };
     const level = metric === 'views' ? Math.sqrt(c.avgViews / analysis.maxAvgViews) : c.count / analysis.maxCount;
-    return { backgroundColor: `hsl(var(--primary) / ${0.15 + level * 0.85})` };
+    return { backgroundColor: `hsl(var(--primary) / ${0.16 + level * 0.84})` };
   };
 
   const maxDayPerf = Math.max(1, ...analysis.byDay.map(d => d.performance));
@@ -246,9 +257,25 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
         onClick={() => onFetchMore(nextFetch)}
         className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
       >
-        <RefreshCw className="h-3 w-3" /> Ambil {nextFetch.toLocaleString('id-ID')} video
+        <RefreshCw className="h-3 w-3" aria-hidden="true" /> Ambil {nextFetch.toLocaleString('id-ID')} video
       </button>
     ) : null;
+
+  const inspectedCell = selectedCell ? analysis.cells[selectedCell.day]?.[selectedCell.hour] : null;
+
+  const handleCellKeyDown = (e: React.KeyboardEvent, dayIdx: number, hour: number) => {
+    let nextRow = dayIdx;
+    let nextCol = hour;
+    if (e.key === 'ArrowRight') nextCol = (hour + 1) % 24;
+    else if (e.key === 'ArrowLeft') nextCol = (hour + 23) % 24;
+    else if (e.key === 'ArrowDown') nextRow = (dayIdx + 1) % DAY_ORDER.length;
+    else if (e.key === 'ArrowUp') nextRow = (dayIdx - 1 + DAY_ORDER.length) % DAY_ORDER.length;
+    else return;
+    e.preventDefault();
+    const nextDay = DAY_ORDER[nextRow];
+    cellRefs.current[`${nextDay}-${nextCol}`]?.focus();
+    setSelectedCell({ day: nextDay, hour: nextCol });
+  };
 
   return (
     <div>
@@ -262,7 +289,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
               {formatPeriodRange(scope.range, videos.length ? videos : allVideos)}
             </span>
             <span className="inline-flex items-center gap-1.5 text-xs">
-              <Globe className="h-3.5 w-3.5" /> Waktu dalam zona waktu Anda ({timeZone})
+              <Globe className="h-3.5 w-3.5" aria-hidden="true" /> Waktu dalam zona waktu Anda ({timeZone})
             </span>
           </span>
         }
@@ -288,6 +315,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
             key={id}
             type="button"
             className="yt-chip"
+            aria-pressed={format === id}
             data-active={format === id}
             onClick={() => changeFormat(id)}
             disabled={id === 'shorts' ? shortsCount === 0 : id === 'video' ? shortsCount === allVideos.length : false}
@@ -295,12 +323,12 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
             {label}
           </button>
         ))}
-        <span className="mx-1 hidden h-6 w-px bg-border sm:block" />
+        <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button type="button" className="yt-chip" data-active={count > 0} aria-label="Jumlah video yang dianalisis">
               {count > 0 ? `${count.toLocaleString('id-ID')} video terbaru` : 'Semua video'}
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 rounded-xl py-2 shadow-popover">
@@ -318,31 +346,30 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
         </DropdownMenu>
       </div>
 
-      <div className="mb-6 space-y-2 text-xs text-muted-foreground">
+      <div className="mb-5 space-y-2 text-xs text-muted-foreground">
         <p className="flex items-start gap-2">
-          <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+          <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             Dihitung dari {formatFullNumber(allVideos.length)} video{' '}
-            {data.source === 'channel' ? (fetchedAll ? '(semua upload channel)' : 'terbaru channel') : 'hasil analisis'}. Jumlah ini mengikuti
-            pengaturan <b className="font-medium text-foreground">Filter → Jumlah video yang diambil</b>
+            {data.source === 'channel' ? (fetchedAll ? '(semua upload channel)' : 'terbaru channel') : 'hasil analisis'} sesuai
+            batas jumlah video di kolom pencarian
             {fetchedAll ? '' : `; channel ini punya ${formatFullNumber(scope.channelTotal ?? 0)} video`}
-            {fetchMoreButton && <> ({fetchMoreButton})</>}. Performa = views ÷ perkiraan views video
-            seusia (1,0× = rata-rata channel), jadi video lama tidak unggul hanya karena umurnya.
+            {fetchMoreButton && <> ({fetchMoreButton})</>}. Performa = views ÷ perkiraan views video seusia (1,0× = rata-rata).
           </span>
         </p>
         {periodId !== 'all' && !scope.coverage.complete && scope.coverage.oldest && (
           <p className="flex items-start gap-2 text-warning">
-            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
-              Data yang dimuat hanya berisi video sejak {formatDate(scope.coverage.oldest.toISOString())}. Naikkan jumlah video yang diambil
-              agar periode ini terhitung lengkap. {fetchMoreButton}
+              Data yang dimuat hanya berisi video sejak {formatDate(scope.coverage.oldest.toISOString())}. Naikkan jumlah video agar
+              periode ini terhitung lengkap. {fetchMoreButton}
             </span>
           </p>
         )}
         {lowData && (
           <p className="flex items-start gap-2 text-warning">
-            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
-            Hanya {videos.length} video — pola jadwal belum bisa dipercaya. Pilih periode lebih panjang atau tambah jumlah video.
+            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>Hanya {videos.length} video — pola jadwal belum cukup stabil. Pilih periode lebih panjang atau tambah jumlah video.</span>
           </p>
         )}
       </div>
@@ -368,7 +395,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatCard
               label="Video dianalisis"
               value={formatFullNumber(videos.length)}
@@ -401,336 +428,451 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
             />
           </div>
 
-          <SectionCard
-            className="mt-6"
-            title="Peta panas upload"
-            description={`${METRIC_DESCRIPTION[metric]}. Klik sel untuk melihat videonya.`}
-            actions={
-              <div className="flex flex-wrap gap-2">
-                {([
-                  ['performance', 'Performa'],
-                  ['views', 'Rata-rata views'],
-                  ['count', 'Jumlah upload'],
-                ] as const).map(([id, label]) => (
-                  <button key={id} type="button" className="yt-chip" data-active={metric === id} onClick={() => setMetric(id)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            <div className="-mx-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
-              <div className="grid min-w-[640px] grid-cols-[44px_repeat(24,minmax(0,1fr))] gap-[3px]">
-                <div />
-                {HOURS.map(h => (
-                  <div key={h} className="text-center text-[10px] text-muted-foreground">
-                    {h % 3 === 0 ? String(h).padStart(2, '0') : ''}
+          <StudioTabs<ScheduleTab>
+            tabs={SCHEDULE_TABS}
+            value={activeTab}
+            onChange={setActiveTab}
+            label="Tampilan jadwal upload"
+            idPrefix="schedule"
+          />
+
+          {activeTab === 'heatmap' && (
+            <div id="schedule-panel-heatmap" role="tabpanel" aria-labelledby="schedule-tab-heatmap" className="space-y-6">
+              {analysis.best[0] && (
+                <div className="flex items-start gap-3.5 rounded-xl border border-primary/20 bg-primary/10 p-4 sm:p-5">
+                  <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                  <p className="text-sm leading-6 text-foreground">
+                    Upload hari <b>{DAYS[analysis.best[0].day]}</b> pukul <b>{formatSlotTime(analysis.best[0])}</b> rata-rata mendapat{' '}
+                    <b>{formatPerformance(analysis.best[0].performance)}</b> views video seusia ({analysis.best[0].count} upload, keyakinan{' '}
+                    {analysis.best[0].confidence}).
+                    {analysis.best[0].confidence === 'rendah'
+                      ? ' Sampelnya masih sedikit — uji jadwal ini beberapa kali sebelum menjadikannya patokan.'
+                      : ' Topik dan judul tetap berpengaruh besar, jadi gunakan sebagai patokan awal lalu uji.'}
+                  </p>
+                </div>
+              )}
+
+              <SectionCard
+                title="Peta panas upload"
+                description={`${METRIC_DESCRIPTION[metric]}. Pilih sel (atau pakai tombol panah) untuk memeriksa detail slot.`}
+                actions={
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Metrik peta panas">
+                    {([
+                      ['performance', 'Performa'],
+                      ['views', 'Rata-rata views'],
+                      ['count', 'Jumlah upload'],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className="yt-chip"
+                        aria-pressed={metric === id}
+                        data-active={metric === id}
+                        onClick={() => setMetric(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                ))}
-                {DAY_ORDER.map(d => (
-                  <React.Fragment key={d}>
-                    <div className="flex items-center text-xs text-muted-foreground">{DAYS_SHORT[d]}</div>
-                    {HOURS.map(h => {
-                      const cell = analysis.cells[d][h];
+                }
+              >
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Peta panas hari kali jam upload"
+                  className="-mx-4 overflow-x-auto px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:-mx-6 sm:px-6"
+                >
+                  <div className="grid min-w-[640px] grid-cols-[44px_repeat(24,minmax(0,1fr))] gap-[3px]">
+                    <div />
+                    {HOURS.map(h => (
+                      <div key={h} className="text-center text-[10px] tabular-nums text-muted-foreground">
+                        {h % 3 === 0 ? String(h).padStart(2, '0') : ''}
+                      </div>
+                    ))}
+                    {DAY_ORDER.map((d, dayIdx) => (
+                      <React.Fragment key={d}>
+                        <div className="flex items-center text-xs text-muted-foreground">{DAYS_SHORT[d]}</div>
+                        {HOURS.map(h => {
+                          const cell = analysis.cells[d][h];
+                          const isSelected = selectedCell?.day === d && selectedCell?.hour === h;
+                          return (
+                            <button
+                              ref={el => {
+                                cellRefs.current[`${d}-${h}`] = el;
+                              }}
+                              type="button"
+                              key={h}
+                              onClick={() => setSelectedCell({ day: d, hour: h })}
+                              onKeyDown={e => handleCellKeyDown(e, dayIdx, h)}
+                              className={cn(
+                                'aspect-square rounded-[3px] transition-shadow hover:ring-2 hover:ring-foreground/60',
+                                !cell.count && 'bg-secondary',
+                                isSelected && 'ring-2 ring-foreground'
+                              )}
+                              style={cellStyle(cell)}
+                              aria-pressed={isSelected}
+                              aria-label={`${DAYS[d]} ${formatHour(h)}: ${cell.count} video${cell.count ? `, performa ${formatPerformance(cell.performance)}` : ''}`}
+                              title={
+                                cell.count
+                                  ? `${DAYS[d]} ${formatHour(h)} — ${cell.count} video • performa ${formatPerformance(cell.performance)} • median ${formatNumber(cell.medianViews)} views`
+                                  : `${DAYS[d]} ${formatHour(h)} — belum ada upload`
+                              }
+                            />
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    {metric === 'performance' ? (
+                      <>
+                        <span>Di bawah rata-rata</span>
+                        {[0.4, 0.7, 1, 1.5, 2.5].map(p => (
+                          <span key={p} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: performanceColor(p) }} />
+                        ))}
+                        <span>Di atas rata-rata</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Rendah</span>
+                        {[0.16, 0.36, 0.56, 0.76, 1].map(o => (
+                          <span key={o} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
+                        ))}
+                        <span>Tinggi</span>
+                      </>
+                    )}
+                    <span className="ml-auto flex items-center gap-1.5">
+                      <span className="h-3 w-3 rounded-[3px] bg-secondary" /> Belum ada upload
+                    </span>
+                  </div>
+                </div>
+
+                {inspectedCell && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-secondary/50 px-4 py-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">
+                        {DAYS[inspectedCell.day]}, {formatHour(inspectedCell.hour)}–{formatHour(inspectedCell.hour + 1)}
+                      </p>
+                      <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                        {inspectedCell.count
+                          ? `${inspectedCell.count} video • performa ${formatPerformance(inspectedCell.performance)} • median ${formatNumber(inspectedCell.medianViews)} views`
+                          : 'Belum ada video diupload pada jam ini'}
+                      </p>
+                    </div>
+                    {inspectedCell.count > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          showSlot(
+                            { day: inspectedCell.day, from: inspectedCell.hour, to: inspectedCell.hour + 1 },
+                            `${DAYS[inspectedCell.day]}, ${formatHour(inspectedCell.hour)}–${formatHour(inspectedCell.hour + 1)}`
+                          )
+                        }
+                        className="yt-pill-primary"
+                      >
+                        Lihat {inspectedCell.count} video <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </SectionCard>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <SectionCard title="Performa per hari" description="1,0× = setara video seusia. Batang pudar = kurang dari 2 upload.">
+                  <ul className="space-y-2">
+                    {DAY_ORDER.map(d => {
+                      const row = analysis.byDay[d];
+                      const reliable = row.count >= MIN_SLOT_UPLOADS;
+                      return (
+                        <li key={d}>
+                          <button
+                            type="button"
+                            disabled={!row.count}
+                            onClick={() => showSlot({ day: d, from: 0, to: 24 }, DAYS[d])}
+                            className="grid min-h-10 w-full grid-cols-[64px_1fr_96px] items-center gap-3 rounded-md px-1.5 text-left text-sm transition-colors enabled:hover:bg-secondary"
+                          >
+                            <span className="text-muted-foreground">{DAYS[d]}</span>
+                            <span className="h-2 overflow-hidden rounded-full bg-secondary">
+                              <span
+                                className={cn(
+                                  'block h-full w-full origin-left rounded-full',
+                                  analysis.bestDay?.day === d ? 'bg-outlier' : 'bg-primary',
+                                  !reliable && 'opacity-40'
+                                )}
+                                style={{ transform: `scaleX(${row.count ? row.performance / maxDayPerf : 0})` }}
+                              />
+                            </span>
+                            <span className="text-right tabular-nums text-foreground">
+                              {row.count ? formatPerformance(row.performance) : '-'}
+                              <span className="ml-1 text-xs text-muted-foreground">({row.count})</span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </SectionCard>
+
+                <SectionCard title="Performa per jam upload" description="Pilih kolom jam untuk melihat daftar videonya.">
+                  <div className="flex h-40 items-stretch gap-[3px]">
+                    {analysis.byHour.map(h => {
+                      const heightPct = h.count ? Math.max(8, (h.performance / maxHourPerf) * 100) : 5;
                       return (
                         <button
                           type="button"
-                          key={h}
-                          disabled={!cell.count}
-                          onClick={() => showSlot({ day: d, from: h, to: h + 1 }, `${DAYS[d]}, ${formatHour(h)}–${formatHour(h + 1)}`)}
-                          className={cn(
-                            'aspect-square rounded-[3px] transition-shadow enabled:cursor-pointer enabled:hover:ring-2 enabled:hover:ring-foreground/60',
-                            !cell.count && 'bg-secondary',
-                            listFilter?.match.day === d && listFilter.match.from === h && listFilter.match.to === h + 1 && 'ring-2 ring-foreground'
-                          )}
-                          style={cellStyle(cell)}
-                          aria-label={`${DAYS[d]} ${formatHour(h)}: ${cell.count} video`}
-                          title={
-                            cell.count
-                              ? `${DAYS[d]} ${formatHour(h)} — ${cell.count} video • performa ${formatPerformance(cell.performance)} • median ${formatNumber(cell.medianViews)} views. Klik untuk melihat videonya.`
-                              : `${DAYS[d]} ${formatHour(h)} — belum ada upload`
-                          }
-                        />
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                {metric === 'performance' ? (
-                  <>
-                    <span>Di bawah rata-rata</span>
-                    {[0.4, 0.7, 1, 1.5, 2.5].map(p => (
-                      <span key={p} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: performanceColor(p) }} />
-                    ))}
-                    <span>Di atas rata-rata</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Rendah</span>
-                    {[0.15, 0.35, 0.55, 0.75, 1].map(o => (
-                      <span key={o} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
-                    ))}
-                    <span>Tinggi</span>
-                  </>
-                )}
-                <span className="ml-auto flex items-center gap-1.5">
-                  <span className="h-3 w-3 rounded-[3px] bg-secondary" /> Belum ada upload
-                </span>
-              </div>
-            </div>
-          </SectionCard>
-
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <SectionCard title="Performa per hari" description="1,0× = setara video seusia. Batang pudar = kurang dari 2 upload. Klik untuk melihat videonya.">
-              <ul className="space-y-2.5">
-                {DAY_ORDER.map(d => {
-                  const row = analysis.byDay[d];
-                  const reliable = row.count >= MIN_SLOT_UPLOADS;
-                  return (
-                    <li key={d}>
-                      <button
-                        type="button"
-                        disabled={!row.count}
-                        onClick={() => showSlot({ day: d, from: 0, to: 24 }, DAYS[d])}
-                        className="grid w-full grid-cols-[64px_1fr_96px] items-center gap-3 rounded-md text-left text-sm enabled:hover:bg-secondary"
-                      >
-                      <span className="text-muted-foreground">{DAYS[d]}</span>
-                      <span className="h-2 overflow-hidden rounded-full bg-secondary">
-                        <span
-                          className={cn(
-                            'block h-full rounded-full',
-                            analysis.bestDay?.day === d ? 'bg-youtube-red' : 'bg-primary',
-                            !reliable && 'opacity-40'
-                          )}
-                          style={{ width: `${row.count ? (row.performance / maxDayPerf) * 100 : 0}%` }}
-                        />
-                      </span>
-                      <span className="text-right tabular-nums text-foreground">
-                        {row.count ? formatPerformance(row.performance) : '-'}
-                        <span className="ml-1 text-xs text-muted-foreground">({row.count})</span>
-                      </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </SectionCard>
-
-            <SectionCard title="Performa per jam upload" description="Arahkan kursor untuk detail, klik untuk melihat videonya.">
-              <div className="flex h-40 items-end gap-[3px]">
-                {analysis.byHour.map(h => (
-                  <button
-                    type="button"
-                    key={h.hour}
-                    disabled={!h.count}
-                    onClick={() => showSlot({ from: h.hour, to: h.hour + 1 }, `Pukul ${formatHour(h.hour)}–${formatHour(h.hour + 1)}`)}
-                    aria-label={`${formatHour(h.hour)}: ${h.count} video`}
-                    className={cn(
-                      'flex-1 rounded-t-sm enabled:hover:opacity-80',
-                      h.count ? (analysis.bestHour?.hour === h.hour ? 'bg-youtube-red' : 'bg-primary') : 'bg-secondary',
-                      h.count > 0 && h.count < MIN_SLOT_UPLOADS && 'opacity-40'
-                    )}
-                    style={{ height: `${h.count ? Math.max(4, (h.performance / maxHourPerf) * 100) : 4}%` }}
-                    title={`${formatHour(h.hour)} — ${h.count} video${h.count ? `, performa ${formatPerformance(h.performance)}, median ${formatNumber(h.medianViews)} views` : ''}`}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-                <span>00.00</span>
-                <span>06.00</span>
-                <span>12.00</span>
-                <span>18.00</span>
-                <span>23.00</span>
-              </div>
-            </SectionCard>
-          </div>
-
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
-            <SectionCard title="Slot terbaik" description={`Blok 3 jam di atas rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
-              {analysis.best.length ? <SlotList slots={analysis.best} tone="good" onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)} /> : <NotEnough />}
-            </SectionCard>
-            <SectionCard title="Slot terendah" description={`Blok 3 jam di bawah rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
-              {analysis.worst.length ? <SlotList slots={analysis.worst} tone="bad" onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)} /> : <NotEnough />}
-            </SectionCard>
-          </div>
-
-          <SectionCard
-            className="mt-6"
-            title="Peringkat waktu upload"
-            description={`Dikelompokkan per ${GROUPING_LABELS[grouping].toLowerCase()}, urut dari performa tertinggi. Kelompok dengan kurang dari ${MIN_SLOT_UPLOADS} upload ditaruh di bawah.`}
-          >
-            <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:-mx-6 sm:px-6" role="group" aria-label="Kelompokkan">
-              <span className="self-center pr-1 text-sm text-muted-foreground">Kelompokkan:</span>
-              {GROUPINGS.map(g => (
-                <button key={g} type="button" className="yt-chip" data-active={grouping === g} onClick={() => changeGrouping(g)}>
-                  {GROUPING_LABELS[g]}
-                </button>
-              ))}
-            </div>
-            <div className="-mx-4 max-h-[480px] overflow-auto sm:-mx-6">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="sticky top-0 bg-card">
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="w-10 px-4 py-2 font-normal sm:pl-6">#</th>
-                    <th className="px-2 py-2 font-normal">{GROUPING_LABELS[grouping]}</th>
-                    <th className="px-2 py-2 text-right font-normal">Upload</th>
-                    <th className="px-2 py-2 text-right font-normal">Median views</th>
-                    <th className="w-[30%] px-2 py-2 font-normal">Performa</th>
-                    <th className="px-4 py-2 text-right font-normal sm:pr-6">Keyakinan</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupRows.map((r, i) => (
-                    <tr
-                      key={r.key}
-                      onClick={() => showSlot(r.match, r.label)}
-                      title="Klik untuk melihat videonya"
-                      className={cn('cursor-pointer border-b border-border last:border-0 hover:bg-secondary', !r.rankable && 'text-muted-foreground')}
-                    >
-                      <td className="px-4 py-2 text-muted-foreground sm:pl-6">{r.rankable ? i + 1 : '–'}</td>
-                      <td className="whitespace-nowrap px-2 py-2 font-medium">{r.label}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{r.count}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.medianViews)}</td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
-                            <span
-                              className={cn('block h-full rounded-full', r.performance >= 1 ? 'bg-primary' : 'bg-youtube-red', !r.rankable && 'opacity-40')}
-                              style={{ width: `${(r.performance / maxGroupPerf) * 100}%` }}
-                            />
-                          </span>
-                          <span className="w-12 text-right tabular-nums">{formatPerformance(r.performance)}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2 text-right sm:pr-6">
-                        <span className={cn('rounded px-1.5 py-px text-[10px] font-medium', CONFIDENCE_STYLE[r.confidence])}>{r.confidence}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-
-          <div ref={listRef} className="scroll-mt-20">
-            <SectionCard
-              className="mt-6"
-              title="Detail upload per video"
-              description={`Hari, tanggal, dan jam upload setiap video (zona waktu ${timeZone}). Performa = views dibanding video seusia.`}
-            >
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                {listFilter ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-inverse px-3 py-1.5 text-sm font-medium text-inverse-foreground">
-                    <Clock className="h-4 w-4" /> {listFilter.label} · {formatFullNumber(listRows.length)} video
-                    <button type="button" aria-label="Hapus filter slot" onClick={() => setListFilter(null)} className="ml-1 rounded-full p-0.5 hover:bg-white/20">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">
-                    {formatFullNumber(listRows.length)} video • klik sel peta panas atau baris peringkat untuk memfilter
-                  </span>
-                )}
-                <span className="ml-auto flex flex-wrap items-center gap-2" role="group" aria-label="Urutkan daftar">
-                  {LIST_SORTS.map(([id, label]) => (
-                    <button key={id} type="button" className="yt-chip" data-active={listSort === id} onClick={() => setListSort(id)}>
-                      {label}
-                    </button>
-                  ))}
-                </span>
-              </div>
-              <div className="-mx-4 overflow-x-auto sm:-mx-6">
-                <table className="w-full text-sm sm:min-w-[820px]">
-                  <thead>
-                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                      <th className="px-4 py-2 font-normal sm:pl-6">Video</th>
-                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Hari & tanggal</th>
-                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Jam</th>
-                      <th className="hidden px-2 py-2 font-normal sm:table-cell">Bagian hari</th>
-                      <th className="hidden px-2 py-2 text-right font-normal sm:table-cell">Umur</th>
-                      <th className="hidden px-2 py-2 text-right font-normal sm:table-cell">Views</th>
-                      <th className="hidden px-4 py-2 text-right font-normal sm:table-cell sm:pr-6">Performa</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {listRows.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-6">
-                          Tidak ada video di slot ini untuk periode & format yang dipilih.
-                        </td>
-                      </tr>
-                    )}
-                    {listRows.slice(0, listLimit).map(r => (
-                      <tr
-                        key={r.video.id}
-                        onClick={() => onPreview?.(r.video)}
-                        className={cn('border-b border-border last:border-0', onPreview && 'cursor-pointer hover:bg-secondary')}
-                      >
-                        <td className="px-4 py-2 sm:pl-6">
-                          <div className="flex items-center gap-3">
-                            <img src={r.video.thumbnail} alt="" loading="lazy" className="aspect-video w-24 shrink-0 rounded-lg bg-secondary object-cover" />
-                            <div className="min-w-0">
-                              <p className="line-clamp-2 font-medium text-foreground">{r.video.title}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                {r.video.isShort ? 'Shorts' : 'Video'} • {r.video.durationFormatted}
-                              </p>
-                              {/* Ringkas untuk layar kecil (kolom lain disembunyikan) */}
-                              <p className="mt-1 text-xs font-medium text-foreground sm:hidden">
-                                {formatDateWithDay(r.video.publishedAt)} • {formatTime(r.video.publishedAt)} • {daypartOf(r.hour)}
-                              </p>
-                              <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
-                                {formatNumber(r.video.viewCountRaw)} views • performa {formatPerformance(r.reach)} •{' '}
-                                {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari lalu`}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="hidden whitespace-nowrap px-2 py-2 sm:table-cell" title={formatDateTimeLong(r.video.publishedAt)}>
-                          {formatDateWithDay(r.video.publishedAt)}
-                        </td>
-                        <td className="hidden whitespace-nowrap px-2 py-2 font-medium tabular-nums sm:table-cell">{formatTime(r.video.publishedAt)}</td>
-                        <td className="hidden whitespace-nowrap px-2 py-2 text-muted-foreground sm:table-cell">{daypartOf(r.hour)}</td>
-                        <td className="hidden whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground sm:table-cell">
-                          {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari`}
-                        </td>
-                        <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">{formatNumber(r.video.viewCountRaw)}</td>
-                        <td className="hidden px-4 py-2 text-right sm:table-cell sm:pr-6">
+                          key={h.hour}
+                          disabled={!h.count}
+                          onClick={() => showSlot({ from: h.hour, to: h.hour + 1 }, `Pukul ${formatHour(h.hour)}–${formatHour(h.hour + 1)}`)}
+                          aria-label={`${formatHour(h.hour)}: ${h.count} video${h.count ? `, performa ${formatPerformance(h.performance)}` : ''}`}
+                          title={`${formatHour(h.hour)} — ${h.count} video${h.count ? `, performa ${formatPerformance(h.performance)}, median ${formatNumber(h.medianViews)} views` : ''}`}
+                          className="group flex h-full flex-1 items-end rounded-sm transition-colors enabled:hover:bg-secondary/70"
+                        >
                           <span
                             className={cn(
-                              'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums',
-                              r.reach >= 1.05 ? 'bg-primary/10 text-primary' : r.reach <= 0.95 ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-foreground'
+                              'block w-full rounded-t-sm transition-opacity group-hover:opacity-85',
+                              h.count ? (analysis.bestHour?.hour === h.hour ? 'bg-outlier' : 'bg-primary') : 'bg-secondary',
+                              h.count > 0 && h.count < MIN_SLOT_UPLOADS && 'opacity-40'
                             )}
-                          >
-                            {formatPerformance(r.reach)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            style={{ height: `${heightPct}%` }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+                    <span>00.00</span>
+                    <span>06.00</span>
+                    <span>12.00</span>
+                    <span>18.00</span>
+                    <span>23.00</span>
+                  </div>
+                </SectionCard>
               </div>
-              {listRows.length > listLimit && (
-                <div className="mt-3 flex justify-center">
-                  <button type="button" className="yt-pill" onClick={() => setListLimit(l => l + LIST_PAGE * 2)}>
-                    Tampilkan lebih banyak ({formatFullNumber(listRows.length - listLimit)} lagi)
-                  </button>
-                </div>
-              )}
-            </SectionCard>
-          </div>
+            </div>
+          )}
 
-          {analysis.best[0] && (
-            <div className="mt-6 flex items-start gap-4 rounded-xl bg-primary/10 p-4 sm:p-5">
-              <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <p className="text-sm leading-6 text-foreground">
-                Upload hari <b>{DAYS[analysis.best[0].day]}</b> pukul <b>{formatSlotTime(analysis.best[0])}</b> rata-rata mendapat{' '}
-                <b>{formatPerformance(analysis.best[0].performance)}</b> views video seusia ({analysis.best[0].count} upload, keyakinan{' '}
-                {analysis.best[0].confidence}).
-                {analysis.best[0].confidence === 'rendah'
-                  ? ' Sampelnya masih sedikit — uji jadwal ini beberapa kali sebelum menjadikannya patokan.'
-                  : ' Topik dan judul tetap berpengaruh besar, jadi gunakan sebagai patokan awal lalu uji.'}
-              </p>
+          {activeTab === 'ranking' && (
+            <div id="schedule-panel-ranking" role="tabpanel" aria-labelledby="schedule-tab-ranking" className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-2">
+                <SectionCard title="Slot terbaik" description={`Blok 3 jam di atas rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
+                  {analysis.best.length ? (
+                    <SlotList
+                      slots={analysis.best}
+                      tone="good"
+                      onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)}
+                    />
+                  ) : (
+                    <NotEnough />
+                  )}
+                </SectionCard>
+                <SectionCard title="Slot terendah" description={`Blok 3 jam di bawah rata-rata, minimal ${MIN_SLOT_UPLOADS} upload`}>
+                  {analysis.worst.length ? (
+                    <SlotList
+                      slots={analysis.worst}
+                      tone="bad"
+                      onSelect={sl => showSlot({ day: sl.day, from: sl.hour, to: sl.hour + sl.span }, `${DAYS[sl.day]}, ${formatSlotTime(sl)}`)}
+                    />
+                  ) : (
+                    <NotEnough />
+                  )}
+                </SectionCard>
+              </div>
+
+              <SectionCard
+                title="Peringkat waktu upload"
+                description={`Dikelompokkan per ${GROUPING_LABELS[grouping].toLowerCase()}, urut dari performa tertinggi. Kelompok dengan kurang dari ${MIN_SLOT_UPLOADS} upload ditaruh di bawah.`}
+              >
+                <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:-mx-6 sm:px-6" role="group" aria-label="Kelompokkan waktu upload">
+                  <span className="self-center pr-1 text-sm text-muted-foreground">Kelompokkan:</span>
+                  {GROUPINGS.map(g => (
+                    <button
+                      key={g}
+                      type="button"
+                      className="yt-chip"
+                      aria-pressed={grouping === g}
+                      data-active={grouping === g}
+                      onClick={() => changeGrouping(g)}
+                    >
+                      {GROUPING_LABELS[g]}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Tabel peringkat waktu upload"
+                  className="-mx-4 max-h-[480px] overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:-mx-6"
+                >
+                  <table className="w-full min-w-[560px] text-sm">
+                    <caption className="sr-only">Peringkat waktu upload dikelompokkan menurut {GROUPING_LABELS[grouping]}</caption>
+                    <thead className="sticky top-0 bg-card">
+                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                        <th scope="col" className="w-10 px-4 py-2 font-medium sm:pl-6">#</th>
+                        <th scope="col" className="px-2 py-2 font-medium">{GROUPING_LABELS[grouping]}</th>
+                        <th scope="col" className="px-2 py-2 text-right font-medium">Upload</th>
+                        <th scope="col" className="px-2 py-2 text-right font-medium">Median views</th>
+                        <th scope="col" className="w-[30%] px-2 py-2 font-medium">Performa</th>
+                        <th scope="col" className="px-4 py-2 text-right font-medium sm:pr-6">Keyakinan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupRows.map((r, i) => (
+                        <tr key={r.key} className={cn('border-b border-border last:border-0 hover:bg-secondary/60', !r.rankable && 'text-muted-foreground')}>
+                          <td className="px-4 py-2 tabular-nums text-muted-foreground sm:pl-6">{r.rankable ? i + 1 : '–'}</td>
+                          <td className="whitespace-nowrap px-2 py-2 font-medium">
+                            <button type="button" onClick={() => showSlot(r.match, r.label)} className="text-left hover:text-primary hover:underline">
+                              {r.label}
+                            </button>
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums">{r.count}</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.medianViews)}</td>
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                                <span
+                                  className={cn('block h-full w-full origin-left rounded-full', r.performance >= 1 ? 'bg-primary' : 'bg-destructive', !r.rankable && 'opacity-40')}
+                                  style={{ transform: `scaleX(${r.performance / maxGroupPerf})` }}
+                                />
+                              </span>
+                              <span className="w-12 text-right tabular-nums">{formatPerformance(r.performance)}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 text-right sm:pr-6">
+                            <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-medium', CONFIDENCE_STYLE[r.confidence])}>{r.confidence}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </SectionCard>
+            </div>
+          )}
+
+          {activeTab === 'videos' && (
+            <div id="schedule-panel-videos" role="tabpanel" aria-labelledby="schedule-tab-videos">
+              <SectionCard
+                title="Detail upload per video"
+                description={`Hari, tanggal, dan jam upload setiap video (zona waktu ${timeZone}). Performa = views dibanding video seusia.`}
+              >
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  {listFilter ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-inverse px-3 py-1.5 text-sm font-medium text-inverse-foreground">
+                      <Clock className="h-4 w-4" aria-hidden="true" /> {listFilter.label} · {formatFullNumber(listRows.length)} video
+                      <button
+                        type="button"
+                        aria-label="Hapus filter slot"
+                        onClick={() => setListFilter(null)}
+                        className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-inverse-foreground/15"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                      {formatFullNumber(listRows.length)} video • pilih slot di Peta Panas atau Peringkat untuk memfilter
+                    </span>
+                  )}
+                  <div className="ml-auto flex flex-wrap items-center gap-2" role="group" aria-label="Urutkan daftar video">
+                    {LIST_SORTS.map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className="yt-chip"
+                        aria-pressed={listSort === id}
+                        data-active={listSort === id}
+                        onClick={() => setListSort(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Tabel detail upload per video"
+                  className="-mx-4 overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:-mx-6"
+                >
+                  <table className="w-full text-sm sm:min-w-[820px]">
+                    <caption className="sr-only">Detail jadwal upload per video</caption>
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                        <th scope="col" className="px-4 py-2 font-medium sm:pl-6">Video</th>
+                        <th scope="col" className="hidden px-2 py-2 font-medium sm:table-cell">Hari & tanggal</th>
+                        <th scope="col" className="hidden px-2 py-2 font-medium sm:table-cell">Jam</th>
+                        <th scope="col" className="hidden px-2 py-2 font-medium sm:table-cell">Bagian hari</th>
+                        <th scope="col" className="hidden px-2 py-2 text-right font-medium sm:table-cell">Umur</th>
+                        <th scope="col" className="hidden px-2 py-2 text-right font-medium sm:table-cell">Views</th>
+                        <th scope="col" className="hidden px-4 py-2 text-right font-medium sm:table-cell sm:pr-6">Performa</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listRows.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-6">
+                            Tidak ada video di slot ini untuk periode & format yang dipilih.
+                          </td>
+                        </tr>
+                      )}
+                      {listRows.slice(0, listLimit).map(r => (
+                        <tr key={r.video.id} className="border-b border-border last:border-0 hover:bg-secondary/60">
+                          <td className="px-4 py-2 sm:pl-6">
+                            <button
+                              type="button"
+                              onClick={() => onPreview?.(r.video)}
+                              disabled={!onPreview}
+                              className="group flex w-full items-center gap-3 text-left"
+                            >
+                              <img src={r.video.thumbnail} alt="" loading="lazy" className="aspect-video w-24 shrink-0 rounded-lg bg-secondary object-cover" />
+                              <span className="min-w-0">
+                                <span className="line-clamp-2 block font-medium text-foreground group-hover:text-primary">{r.video.title}</span>
+                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                  {r.video.isShort ? 'Shorts' : 'Video'} • {r.video.durationFormatted}
+                                </span>
+                                <span className="mt-1 block text-xs font-medium text-foreground sm:hidden">
+                                  {formatDateWithDay(r.video.publishedAt)} • {formatTime(r.video.publishedAt)} • {daypartOf(r.hour)}
+                                </span>
+                                <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground sm:hidden">
+                                  {formatNumber(r.video.viewCountRaw)} views • performa {formatPerformance(r.reach)} •{' '}
+                                  {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari lalu`}
+                                </span>
+                              </span>
+                            </button>
+                          </td>
+                          <td className="hidden whitespace-nowrap px-2 py-2 sm:table-cell" title={formatDateTimeLong(r.video.publishedAt)}>
+                            {formatDateWithDay(r.video.publishedAt)}
+                          </td>
+                          <td className="hidden whitespace-nowrap px-2 py-2 font-medium tabular-nums sm:table-cell">{formatTime(r.video.publishedAt)}</td>
+                          <td className="hidden whitespace-nowrap px-2 py-2 text-muted-foreground sm:table-cell">{daypartOf(r.hour)}</td>
+                          <td className="hidden whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground sm:table-cell">
+                            {r.ageDays === 0 ? 'hari ini' : `${formatFullNumber(r.ageDays)} hari`}
+                          </td>
+                          <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">{formatNumber(r.video.viewCountRaw)}</td>
+                          <td className="hidden px-4 py-2 text-right sm:table-cell sm:pr-6">
+                            <span
+                              className={cn(
+                                'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums',
+                                r.reach >= 1.05 ? 'bg-primary/15 text-primary' : r.reach <= 0.95 ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-foreground'
+                              )}
+                            >
+                              {formatPerformance(r.reach)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {listRows.length > listLimit && (
+                  <div className="mt-4 flex justify-center">
+                    <button type="button" className="yt-pill" onClick={() => setListLimit(l => l + LIST_PAGE * 2)}>
+                      Tampilkan lebih banyak ({formatFullNumber(listRows.length - listLimit)} lagi)
+                    </button>
+                  </div>
+                )}
+              </SectionCard>
             </div>
           )}
         </>
@@ -746,36 +888,37 @@ const NotEnough = () => (
 const SlotList: React.FC<{ slots: Slot[]; tone: 'good' | 'bad'; onSelect?: (s: Slot) => void }> = ({ slots, tone, onSelect }) => (
   <ul className="divide-y divide-border">
     {slots.map((s, i) => (
-      <li
-        key={`${s.day}-${s.hour}`}
-        className={cn('flex items-center gap-3 py-3 first:pt-0 last:pb-0', onSelect && '-mx-2 cursor-pointer rounded-lg px-2 hover:bg-secondary')}
-        onClick={() => onSelect?.(s)}
-        title={onSelect ? 'Klik untuk melihat videonya' : undefined}
-      >
-        <span
-          className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium',
-            tone === 'good' ? 'bg-success/15 text-success' : 'bg-destructive/10 text-destructive'
-          )}
+      <li key={`${s.day}-${s.hour}`} className="py-1 first:pt-0 last:pb-0">
+        <button
+          type="button"
+          onClick={() => onSelect?.(s)}
+          className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-secondary"
         >
-          {tone === 'good' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">
-            {i + 1}. {DAYS[s.day]}, {formatSlotTime(s)}
-          </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{s.count} upload</span>
-            <span>• median {formatNumber(s.medianViews)} views</span>
-            <span className={cn('rounded px-1.5 py-px text-[10px] font-medium', CONFIDENCE_STYLE[s.confidence])}>
-              keyakinan {s.confidence}
+          <span
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium',
+              tone === 'good' ? 'bg-success/15 text-success' : 'bg-destructive/10 text-destructive'
+            )}
+          >
+            {tone === 'good' ? <TrendingUp className="h-4 w-4" aria-hidden="true" /> : <TrendingDown className="h-4 w-4" aria-hidden="true" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-foreground">
+              {i + 1}. {DAYS[s.day]}, {formatSlotTime(s)}
             </span>
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-medium tabular-nums text-foreground">{formatPerformance(s.performance)}</p>
-          <p className="text-[11px] text-muted-foreground">performa</p>
-        </div>
+            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-muted-foreground">
+              <span>{s.count} upload</span>
+              <span>• median {formatNumber(s.medianViews)} views</span>
+              <span className={cn('rounded px-1.5 py-px text-[10px] font-medium', CONFIDENCE_STYLE[s.confidence])}>
+                keyakinan {s.confidence}
+              </span>
+            </span>
+          </span>
+          <span className="text-right">
+            <span className="block text-sm font-semibold tabular-nums text-foreground">{formatPerformance(s.performance)}</span>
+            <span className="block text-[11px] text-muted-foreground">performa</span>
+          </span>
+        </button>
       </li>
     ))}
   </ul>

@@ -3,7 +3,7 @@ import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
-  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: ["./index.html", "./src/**/*.{ts,tsx}"],
   prefix: "",
   theme: {
     container: {
@@ -15,7 +15,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Roboto", "Arial", "system-ui", "sans-serif"],
+        sans: ['"IBM Plex Sans"', "system-ui", "-apple-system", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -61,13 +61,24 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        // YouTube brand & inverse (chip aktif / snackbar)
         youtube: {
           red: "hsl(var(--yt-red))",
         },
         inverse: {
           DEFAULT: "hsl(var(--inverse))",
           foreground: "hsl(var(--inverse-foreground))",
+          primary: "hsl(var(--inverse-primary))",
+          success: "hsl(var(--inverse-success))",
+          destructive: "hsl(var(--inverse-destructive))",
+        },
+        outlier: "hsl(var(--outlier))",
+        visited: "hsl(var(--visited))",
+        grade: {
+          a: "hsl(var(--grade-a))",
+          b: "hsl(var(--grade-b))",
+          c: "hsl(var(--grade-c))",
+          d: "hsl(var(--grade-d))",
+          f: "hsl(var(--grade-f))",
         },
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
@@ -82,51 +93,24 @@ export default {
         "3xl": "calc(var(--radius) + 16px)",
       },
       keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
-        },
         "fade-in": {
-          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
-        "fade-out": {
-          "0%": { opacity: "1", transform: "translateY(0)" },
-          "100%": { opacity: "0", transform: "translateY(10px)" },
-        },
         "scale-in": {
-          "0%": { transform: "scale(0.95)", opacity: "0" },
+          "0%": { transform: "scale(0.96)", opacity: "0" },
           "100%": { transform: "scale(1)", opacity: "1" },
-        },
-        "slide-in-right": {
-          "0%": { transform: "translateX(100%)", opacity: "0" },
-          "100%": { transform: "translateX(0)", opacity: "1" },
-        },
-        "slide-in-up": {
-          "0%": { transform: "translateY(100%)", opacity: "0" },
-          "100%": { transform: "translateY(0)", opacity: "1" },
-        },
-        shimmer: {
-          "0%": { backgroundPosition: "-200% 0" },
-          "100%": { backgroundPosition: "200% 0" },
         },
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
-        "fade-in": "fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-        "fade-out": "fade-out 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-        "scale-in": "scale-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-        "slide-in-right": "slide-in-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-        "slide-in-up": "slide-in-up 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-        shimmer: "shimmer 1.5s infinite",
+        "fade-in": "fade-in 0.2s cubic-bezier(0.23, 1, 0.32, 1) forwards",
+        "scale-in": "scale-in 0.18s cubic-bezier(0.23, 1, 0.32, 1) forwards",
       },
       boxShadow: {
-        popover: "0 4px 32px 0 rgba(0,0,0,0.1)",
+        popover: "0 4px 20px -2px rgb(0 0 0 / 0.14), 0 1px 4px 0 rgb(0 0 0 / 0.08)",
+      },
+      transitionTimingFunction: {
+        drawer: "cubic-bezier(0.32, 0.72, 0, 1)",
       },
     },
   },

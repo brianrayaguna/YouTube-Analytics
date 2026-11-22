@@ -143,26 +143,55 @@ const describeApiError = (reason: string | undefined, fallback: string): string 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- respons YouTube API bervariasi per endpoint
 type ApiResponse = any;
 
+const REQUEST_TIMEOUT_MS = 30000;
+
+const combineSignals = (signal?: AbortSignal): AbortSignal | undefined => {
+  const timeoutSignal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    : undefined;
+  if (!signal) return timeoutSignal;
+  if (!timeoutSignal) return signal;
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([signal, timeoutSignal]);
+  }
+  return signal;
+};
+
+export const isAbortError = (err: unknown): boolean =>
+  (err instanceof DOMException && err.name === 'AbortError') ||
+  (err instanceof Error && err.name === 'AbortError');
+
 const apiGet = async (
   endpoint: string,
   params: Record<string, string | number | undefined>,
   apiKey: string,
-  cost = 1
+  cost = 1,
+  signal?: AbortSignal
 ): Promise<ApiResponse> => {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new DOMException('Permintaan dibatalkan', 'AbortError');
+  }
+
   const url = new URL(`${API_BASE}/${endpoint}`);
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   });
   url.searchParams.set('key', apiKey);
 
-  trackQuota(cost);
-
   let res: Response;
   try {
-    res = await fetch(url.toString());
-  } catch {
+    res = await fetch(url.toString(), { signal: combineSignals(signal) });
+  } catch (err) {
+    if (signal?.aborted) {
+      throw err instanceof Error ? err : new DOMException('Permintaan dibatalkan', 'AbortError');
+    }
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new YouTubeApiError('Permintaan ke YouTube API melebihi batas waktu. Coba lagi.');
+    }
     throw new YouTubeApiError('Gagal terhubung ke YouTube API. Periksa koneksi internet.');
   }
+
+  trackQuota(cost);
 
   let data: ApiResponse = null;
   try {
@@ -181,9 +210,9 @@ const apiGet = async (
 };
 
 /** Cek API key dengan request termurah (1 unit). */
-export const validateApiKey = async (apiKey: string): Promise<void> => {
+export const validateApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
   if (!apiKey.trim()) throw new YouTubeApiError('API Key masih kosong.');
-  await apiGet('videos', { part: 'id', chart: 'mostPopular', maxResults: 1, regionCode: 'US' }, apiKey.trim(), 1);
+  await apiGet('videos', { part: 'id', chart: 'mostPopular', maxResults: 1, regionCode: 'US' }, apiKey.trim(), 1, signal);
 };
 
 // --- PARSING ---
@@ -236,27 +265,45 @@ const mapVideo = (v: ApiResponse): VideoItem => {
   };
 };
 
-/** Tandai outlier: views ≥ 3× median views daftar (minimal 5 video). */
+/** Tandai outlier: views ≥ 3× median views daftar (minimal 5 video), sekaligus simpan rasio mediannya. */
 export const markOutliers = (videos: VideoItem[]): VideoItem[] => {
-  if (videos.length < 5) return videos.map(v => ({ ...v, isOutlier: false }));
+  if (videos.length < 5) return videos.map(v => ({ ...v, isOutlier: false, outlierRatio: undefined }));
   const med = median(videos.map(v => v.viewCountRaw));
-  return videos.map(v => ({ ...v, isOutlier: med > 0 && v.viewCountRaw >= med * 3 }));
+  return videos.map(v => {
+    const ratio = med > 0 ? Number((v.viewCountRaw / med).toFixed(1)) : undefined;
+    return {
+      ...v,
+      isOutlier: med > 0 && v.viewCountRaw >= med * 3,
+      outlierRatio: ratio,
+    };
+  });
 };
 
-const fetchVideoDetails = async (apiKey: string, videoIds: string[]): Promise<VideoItem[]> => {
+const VIDEO_DETAIL_CONCURRENCY = 4;
+
+const fetchVideoDetails = async (apiKey: string, videoIds: string[], signal?: AbortSignal): Promise<VideoItem[]> => {
   const unique = Array.from(new Set(videoIds.filter(Boolean)));
-  const items: ApiResponse[] = [];
+  const chunks: string[][] = [];
   for (let i = 0; i < unique.length; i += 50) {
-    const chunk = unique.slice(i, i + 50);
-    const data = await apiGet('videos', { part: 'snippet,contentDetails,statistics', id: chunk.join(','), maxResults: 50 }, apiKey);
-    if (data.items) items.push(...data.items);
+    chunks.push(unique.slice(i, i + 50));
   }
+  const items: ApiResponse[] = [];
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < chunks.length) {
+      const chunk = chunks[cursor++];
+      const data = await apiGet('videos', { part: 'snippet,contentDetails,statistics', id: chunk.join(','), maxResults: 50 }, apiKey, 1, signal);
+      if (data.items) items.push(...data.items);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(VIDEO_DETAIL_CONCURRENCY, chunks.length) }, worker));
+
   // Pertahankan urutan asli (mis. urutan playlist)
   const order = new Map(unique.map((id, i) => [id, i]));
   return items.map(mapVideo).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 };
 
-const fetchPlaylistVideoIds = async (apiKey: string, playlistId: string, limit: number): Promise<string[]> => {
+const fetchPlaylistVideoIds = async (apiKey: string, playlistId: string, limit: number, signal?: AbortSignal): Promise<string[]> => {
   const ids: string[] = [];
   let pageToken = '';
   while (ids.length < limit) {
@@ -265,7 +312,7 @@ const fetchPlaylistVideoIds = async (apiKey: string, playlistId: string, limit: 
       playlistId,
       maxResults: Math.min(limit - ids.length, 50),
       pageToken,
-    }, apiKey);
+    }, apiKey, 1, signal);
     if (!data.items?.length) break;
     ids.push(...data.items.map((i: ApiResponse) => i.contentDetails?.videoId).filter(Boolean));
     pageToken = data.nextPageToken || '';
@@ -335,24 +382,35 @@ export const classifyQuery = (raw: string): 'channel' | 'playlist' | 'keyword' =
   return 'channel';
 };
 
+export const estimateQuotaCost = (rawQuery: string, limit: number): number => {
+  const kind = rawQuery.trim() ? classifyQuery(rawQuery) : 'channel';
+  if (kind === 'keyword') {
+    const target = Math.min(limit, SEARCH_RESULT_CAP);
+    const pages = Math.max(1, Math.ceil(target / 50));
+    return pages * 100 + pages;
+  }
+  const pages = Math.max(1, Math.ceil(limit / 50));
+  return kind === 'playlist' ? pages * 2 + 1 : pages * 2 + 2;
+};
+
 /** Ubah input channel (ID, @handle, URL, username) menjadi channel ID. */
-export const resolveChannelId = async (apiKey: string, raw: string): Promise<string> => {
+export const resolveChannelId = async (apiKey: string, raw: string, signal?: AbortSignal): Promise<string> => {
   const parsed = parseYouTubeQuery(raw);
   switch (parsed.kind) {
     case 'channelId':
       return parsed.id;
     case 'handle': {
-      const data = await apiGet('channels', { part: 'id', forHandle: parsed.handle }, apiKey);
+      const data = await apiGet('channels', { part: 'id', forHandle: parsed.handle }, apiKey, 1, signal);
       if (data.items?.[0]?.id) return data.items[0].id;
       break;
     }
     case 'username': {
-      const data = await apiGet('channels', { part: 'id', forUsername: parsed.name }, apiKey);
+      const data = await apiGet('channels', { part: 'id', forUsername: parsed.name }, apiKey, 1, signal);
       if (data.items?.[0]?.id) return data.items[0].id;
       break;
     }
     case 'video': {
-      const data = await apiGet('videos', { part: 'snippet', id: parsed.id }, apiKey);
+      const data = await apiGet('videos', { part: 'snippet', id: parsed.id }, apiKey, 1, signal);
       if (data.items?.[0]?.snippet?.channelId) return data.items[0].snippet.channelId;
       throw new YouTubeApiError('Video tidak ditemukan atau bersifat privat.');
     }
@@ -365,15 +423,15 @@ export const resolveChannelId = async (apiKey: string, raw: string): Promise<str
     : parsed.kind === 'username' || parsed.kind === 'customUrl' ? parsed.name
     : parsed.kind === 'search' ? parsed.q
     : raw;
-  const search = await apiGet('search', { part: 'snippet', type: 'channel', q, maxResults: 1 }, apiKey, 100);
+  const search = await apiGet('search', { part: 'snippet', type: 'channel', q, maxResults: 1 }, apiKey, 100, signal);
   const id = search.items?.[0]?.id?.channelId || search.items?.[0]?.snippet?.channelId;
   if (!id) throw new YouTubeApiError(`Channel "${raw.trim()}" tidak ditemukan. Pastikan nama/handle benar.`);
   return id;
 };
 
 // --- PUBLIC API ---
-export const fetchChannelInfo = async (apiKey: string, channelId: string): Promise<ChannelStats | undefined> => {
-  const data = await apiGet('channels', { part: 'snippet,statistics,brandingSettings', id: channelId }, apiKey);
+export const fetchChannelInfo = async (apiKey: string, channelId: string, signal?: AbortSignal): Promise<ChannelStats | undefined> => {
+  const data = await apiGet('channels', { part: 'snippet,statistics,brandingSettings', id: channelId }, apiKey, 1, signal);
   const ch = data.items?.[0];
   if (!ch) return undefined;
   const subs = Number(ch.statistics?.subscriberCount || 0);
@@ -398,20 +456,25 @@ export const fetchChannelInfo = async (apiKey: string, channelId: string): Promi
 };
 
 /** Ambil video terbaru dari uploads playlist sebuah channel. */
-export const fetchChannelUploads = async (apiKey: string, channelId: string, limit: number): Promise<VideoItem[]> => {
+export const fetchChannelUploads = async (apiKey: string, channelId: string, limit: number, signal?: AbortSignal): Promise<VideoItem[]> => {
   // Uploads playlist selalu "UU" + sisa channel ID — hemat 1 request
   const uploadsId = `UU${channelId.slice(2)}`;
   let ids: string[] = [];
   try {
-    ids = await fetchPlaylistVideoIds(apiKey, uploadsId, limit);
+    ids = await fetchPlaylistVideoIds(apiKey, uploadsId, limit, signal);
   } catch (e) {
     if (!(e instanceof YouTubeApiError) || e.reason !== 'playlistNotFound') throw e;
   }
   if (!ids.length) return [];
-  return fetchVideoDetails(apiKey, ids);
+  return fetchVideoDetails(apiKey, ids, signal);
 };
 
-export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, regionCode: string = 'ID'): Promise<AnalyzedData> => {
+export const fetchTrendingVideos = async (
+  apiKey: string,
+  limit: number = 50,
+  regionCode: string = 'ID',
+  signal?: AbortSignal
+): Promise<AnalyzedData> => {
   const target = Math.min(limit, TRENDING_RESULT_CAP);
   const items: ApiResponse[] = [];
   let pageToken = '';
@@ -422,7 +485,7 @@ export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, re
       regionCode,
       maxResults: Math.min(target - items.length, 50),
       pageToken,
-    }, apiKey);
+    }, apiKey, 1, signal);
     if (!data.items?.length) break;
     items.push(...data.items);
     pageToken = data.nextPageToken || '';
@@ -440,7 +503,12 @@ export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, re
   };
 };
 
-export const fetchYouTubeData = async (apiKey: string, query: string, limit: number): Promise<AnalyzedData> => {
+export const fetchYouTubeData = async (
+  apiKey: string,
+  query: string,
+  limit: number,
+  signal?: AbortSignal
+): Promise<AnalyzedData> => {
   const cleanQuery = query.trim();
   if (!cleanQuery) throw new YouTubeApiError('Masukkan nama channel, URL, atau kata kunci.');
 
@@ -452,11 +520,14 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: num
   let result: AnalyzedData;
 
   if (parsed.kind === 'playlist') {
-    const ids = await fetchPlaylistVideoIds(apiKey, parsed.id, limit);
+    const ids = await fetchPlaylistVideoIds(apiKey, parsed.id, limit, signal);
     if (!ids.length) throw new YouTubeApiError('Playlist kosong atau tidak bisa diakses.');
     const [videos, meta] = await Promise.all([
-      fetchVideoDetails(apiKey, ids),
-      apiGet('playlists', { part: 'snippet', id: parsed.id }, apiKey).catch(() => null),
+      fetchVideoDetails(apiKey, ids, signal),
+      apiGet('playlists', { part: 'snippet', id: parsed.id }, apiKey, 1, signal).catch(err => {
+        if (isAbortError(err)) throw err;
+        return null;
+      }),
     ]);
     const snippet = meta?.items?.[0]?.snippet;
     result = {
@@ -478,14 +549,14 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: num
         type: 'video',
         maxResults: Math.min(target - ids.length, 50),
         pageToken,
-      }, apiKey, 100);
+      }, apiKey, 100, signal);
       if (!data.items?.length) break;
       ids.push(...data.items.map((i: ApiResponse) => i.id?.videoId).filter(Boolean));
       pageToken = data.nextPageToken || '';
       if (!pageToken) break;
     }
     if (!ids.length) throw new YouTubeApiError(`Tidak ada video untuk "${parsed.q}".`);
-    const videos = await fetchVideoDetails(apiKey, ids);
+    const videos = await fetchVideoDetails(apiKey, ids, signal);
     result = {
       videos: markOutliers(videos),
       channelTitle: `Hasil pencarian: ${parsed.q}`,
@@ -498,10 +569,10 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: num
     };
   } else {
     // Channel: @handle, ID, URL channel, atau URL video (menganalisis channel pemilik video)
-    const channelId = await resolveChannelId(apiKey, cleanQuery);
+    const channelId = await resolveChannelId(apiKey, cleanQuery, signal);
     const [stats, videos] = await Promise.all([
-      fetchChannelInfo(apiKey, channelId),
-      fetchChannelUploads(apiKey, channelId, limit),
+      fetchChannelInfo(apiKey, channelId, signal),
+      fetchChannelUploads(apiKey, channelId, limit, signal),
     ]);
     if (!stats) throw new YouTubeApiError('Channel tidak ditemukan.');
     if (!videos.length) throw new YouTubeApiError(`Channel "${stats.title}" belum memiliki video publik.`);

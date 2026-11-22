@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Swords, Crown, ArrowLeftRight } from 'lucide-react';
 import {
   RadarChart,
@@ -43,7 +43,7 @@ interface ComparisonResult {
 
 const SAMPLE_SIZE = 30;
 const COLOR_A = 'hsl(var(--primary))';
-const COLOR_B = 'hsl(var(--yt-red))';
+const COLOR_B = 'hsl(var(--outlier))';
 
 const buildChannelData = (stats: ChannelStats, videos: VideoItem[]): ChannelData => {
   const times = videos.map(v => new Date(v.publishedAt).getTime()).filter(Boolean);
@@ -60,7 +60,7 @@ const buildChannelData = (stats: ChannelStats, videos: VideoItem[]): ChannelData
     medianViews: median(views),
     shortsShare: videos.length ? (videos.filter(v => v.isShort).length / videos.length) * 100 : 0,
     topTags: Array.from(tagCounts.entries())
-      .sort((x, y) => y[1] - x[1])
+      .toSorted((x, y) => y[1] - x[1])
       .slice(0, 25)
       .map(([t]) => t),
   };
@@ -72,6 +72,10 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (defaultChannel && !queryA) setQueryA(defaultChannel);
+  }, [defaultChannel, queryA]);
 
   const handleCompare = async () => {
     if (!apiKey) {
@@ -116,9 +120,8 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
   const rows = useMemo(() => {
     if (!result) return [];
     const { a, b } = result;
-    // Subscriber yang disembunyikan terbaca 0 — jangan dihitung kalah
     const subsHidden = !!(a.stats.hiddenSubscriberCount || b.stats.hiddenSubscriberCount);
-    const rows: Array<{ label: string; a: number; b: number; fmt: (n: number) => string; unavailable?: boolean }> = [
+    const items: Array<{ label: string; a: number; b: number; fmt: (n: number) => string; unavailable?: boolean }> = [
       { label: 'Subscriber', a: a.stats.subCountRaw, b: b.stats.subCountRaw, fmt: formatNumber, unavailable: subsHidden },
       { label: 'Total views', a: a.stats.viewCountRaw ?? 0, b: b.stats.viewCountRaw ?? 0, fmt: formatNumber },
       { label: 'Jumlah video', a: a.stats.videoCountRaw ?? 0, b: b.stats.videoCountRaw ?? 0, fmt: (n: number) => n.toLocaleString('id-ID') },
@@ -134,7 +137,7 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
         unavailable: subsHidden,
       },
     ];
-    return rows;
+    return items;
   }, [result]);
 
   const hiddenLabel = (ch: ChannelData | undefined, r: { label: string; unavailable?: boolean }) =>
@@ -169,8 +172,17 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
         }}
       >
         <div className="flex flex-1 items-center gap-2">
-          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_A }} />
-          <input value={queryA} onChange={e => setQueryA(e.target.value)} placeholder="Channel A — @handle, ID, atau URL" className="yt-input" />
+          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_A }} aria-hidden="true" />
+          <label htmlFor="benchmark-channel-a" className="sr-only">
+            Channel pertama
+          </label>
+          <input
+            id="benchmark-channel-a"
+            value={queryA}
+            onChange={e => setQueryA(e.target.value)}
+            placeholder="Channel A — @handle, ID, atau URL"
+            className="yt-input"
+          />
         </div>
         <button
           type="button"
@@ -179,22 +191,35 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
             setQueryB(queryA);
           }}
           className="yt-icon-btn self-center"
-          aria-label="Tukar channel"
+          aria-label="Tukar posisi Channel A dan Channel B"
           title="Tukar"
         >
-          <ArrowLeftRight className="h-5 w-5" strokeWidth={1.75} />
+          <ArrowLeftRight className="h-5 w-5 rotate-90 md:rotate-0" strokeWidth={1.75} aria-hidden="true" />
         </button>
         <div className="flex flex-1 items-center gap-2">
-          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_B }} />
-          <input value={queryB} onChange={e => setQueryB(e.target.value)} placeholder="Channel B — @handle, ID, atau URL" className="yt-input" />
+          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLOR_B }} aria-hidden="true" />
+          <label htmlFor="benchmark-channel-b" className="sr-only">
+            Channel kedua
+          </label>
+          <input
+            id="benchmark-channel-b"
+            value={queryB}
+            onChange={e => setQueryB(e.target.value)}
+            placeholder="Channel B — @handle, ID, atau URL"
+            className="yt-input"
+          />
         </div>
         <button type="submit" disabled={loading} className="yt-pill-blue">
-          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
           {loading ? 'Membandingkan…' : 'Bandingkan'}
         </button>
       </form>
 
-      {error && <p className="mt-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       {!result && !loading && (
         <EmptyState
@@ -211,7 +236,7 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
               {[result.a, result.b].map((ch, idx) => (
                 <div key={idx} className={cn('flex flex-col items-center text-center', idx === 1 && 'col-start-3')}>
                   <div className="relative">
-                    <ChannelAvatar name={ch.stats.title || ''} src={ch.stats.avatar} size={80} className="border-4" />
+                    <ChannelAvatar name={ch.stats.title || ''} src={ch.stats.avatar} size={80} className="border-4 border-card" />
                     <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-card" style={{ backgroundColor: idx === 0 ? COLOR_A : COLOR_B }} />
                   </div>
                   <p className="mt-3 line-clamp-1 font-medium text-foreground">{ch.stats.title}</p>
@@ -219,8 +244,10 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
                 </div>
               ))}
               <div className="col-start-2 row-start-1 flex flex-col items-center">
-                <span className="text-3xl font-medium tabular-nums text-foreground">
-                  {winsA}<span className="mx-2 text-muted-foreground">:</span>{winsB}
+                <span className="text-3xl font-semibold tabular-nums text-foreground">
+                  {winsA}
+                  <span className="mx-2 text-muted-foreground">:</span>
+                  {winsB}
                 </span>
                 <span className="text-xs text-muted-foreground">metrik unggul</span>
               </div>
@@ -233,13 +260,13 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
                 return (
                   <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-3 text-sm">
                     <span className={cn('flex items-center justify-end gap-1.5 tabular-nums', aWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-                      {aWins && <Crown className="h-4 w-4 text-warning" />}
+                      {aWins && <Crown className="h-4 w-4 text-warning" aria-label={`${nameA} unggul`} />}
                       {hiddenLabel(result.a, r) ?? r.fmt(r.a)}
                     </span>
                     <span className="w-36 text-center text-xs text-muted-foreground sm:w-48">{r.label}</span>
                     <span className={cn('flex items-center gap-1.5 tabular-nums', bWins ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                       {hiddenLabel(result.b, r) ?? r.fmt(r.b)}
-                      {bWins && <Crown className="h-4 w-4 text-warning" />}
+                      {bWins && <Crown className="h-4 w-4 text-warning" aria-label={`${nameB} unggul`} />}
                     </span>
                   </div>
                 );
@@ -248,13 +275,13 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
           </div>
 
           <SectionCard title="Profil performa" description="Nilai dinormalisasi: channel terbaik di tiap metrik = 100">
-            <div className="h-80">
+            <figure className="h-80" aria-label={`Grafik radar perbandingan ${nameA} melawan ${nameB}`}>
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData} outerRadius="72%">
                   <PolarGrid stroke="hsl(var(--border))" />
                   <PolarAngleAxis dataKey="metric" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
-                  <Radar name={nameA} dataKey="A" stroke={COLOR_A} fill={COLOR_A} fillOpacity={0.25} />
-                  <Radar name={nameB} dataKey="B" stroke={COLOR_B} fill={COLOR_B} fillOpacity={0.2} />
+                  <Radar name={nameA} dataKey="A" stroke={COLOR_A} fill={COLOR_A} fillOpacity={0.22} />
+                  <Radar name={nameB} dataKey="B" stroke={COLOR_B} fill={COLOR_B} fillOpacity={0.22} />
                   <Tooltip
                     formatter={(v: number) => v.toFixed(0)}
                     contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
@@ -262,15 +289,15 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                 </RadarChart>
               </ResponsiveContainer>
-            </div>
+            </figure>
           </SectionCard>
 
-          <SectionCard title="Analisis tag" description={`Dari 25 tag teratas masing-masing channel`}>
+          <SectionCard title="Analisis tag" description="Dari 25 tag teratas masing-masing channel">
             <div className="grid gap-6 md:grid-cols-3">
               {[
                 { title: `Sama (${result.tagOverlap.length})`, tags: result.tagOverlap, cls: 'bg-secondary text-foreground' },
-                { title: `Hanya ${nameA} (${result.uniqueA.length})`, tags: result.uniqueA, cls: 'bg-primary/10 text-primary' },
-                { title: `Hanya ${nameB} (${result.uniqueB.length})`, tags: result.uniqueB, cls: 'bg-youtube-red/10 text-destructive' },
+                { title: `Hanya ${nameA} (${result.uniqueA.length})`, tags: result.uniqueA, cls: 'bg-primary/15 text-primary' },
+                { title: `Hanya ${nameB} (${result.uniqueB.length})`, tags: result.uniqueB, cls: 'bg-outlier/15 text-outlier' },
               ].map(col => (
                 <div key={col.title}>
                   <h3 className="mb-3 line-clamp-1 text-sm font-medium text-foreground">{col.title}</h3>

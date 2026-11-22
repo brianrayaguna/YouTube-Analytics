@@ -99,7 +99,7 @@ export const midRankPercentile = (value: number, sorted: number[]): number => {
 
 const medianOf = (nums: number[]) => {
   if (!nums.length) return 0;
-  const s = [...nums].sort((a, b) => a - b);
+  const s = nums.toSorted((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };

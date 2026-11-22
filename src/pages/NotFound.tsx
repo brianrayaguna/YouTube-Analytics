@@ -1,19 +1,23 @@
-import { Link } from "react-router-dom";
+import { Link } from 'react-router-dom';
 
 const NotFound = () => (
-  <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
-    <svg viewBox="0 0 28 20" className="h-20 w-28 opacity-90" aria-hidden="true">
-      <rect width="28" height="20" rx="5.5" fill="hsl(var(--yt-red))" />
-      <path d="M11.2 5.6v8.8l7.6-4.4z" fill="#fff" />
+  <main className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
+    <svg viewBox="0 0 32 32" className="h-16 w-16" aria-hidden="true">
+      <rect width="32" height="32" rx="8" fill="#0F172A" />
+      <rect x="6.5" y="18" width="4.5" height="7.5" rx="1.6" fill="#3DA5FF" />
+      <rect x="13.75" y="12.5" width="4.5" height="13" rx="1.6" fill="#2DD4BF" />
+      <rect x="21" y="6.5" width="4.5" height="19" rx="1.6" fill="#FF3B30" />
     </svg>
-    <p className="mt-8 text-base text-foreground">Halaman ini tidak tersedia. Mohon maaf atas ketidaknyamanan ini.</p>
-    <p className="mt-1 text-sm text-muted-foreground">Coba telusuri dari beranda.</p>
+    <h1 className="mt-6 text-2xl font-bold text-foreground">Halaman tidak ditemukan</h1>
+    <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+      Alamat yang Anda buka tidak tersedia. Kembali ke beranda untuk memulai analisis channel.
+    </p>
     <div className="mt-6">
       <Link to="/" className="yt-pill-primary">
         Kembali ke beranda
       </Link>
     </div>
-  </div>
+  </main>
 );
 
 export default NotFound;

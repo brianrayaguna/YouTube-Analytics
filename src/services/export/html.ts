@@ -79,7 +79,7 @@ ${GROUP_TABS.map(([k], i) => `<div class="gpanel" data-g="${k}"${i === 0 ? '' : 
 export const buildHtml = (report: Report, thumbs: Map<string, ThumbImage> | null, avatar?: ThumbImage): Blob => {
   const { context: ctx, summary: s, rows } = report;
   const ch = ctx.channelStats;
-  const top = [...rows].sort((a, b) => b.views - a.views).slice(0, 30);
+  const top = rows.toSorted((a, b) => b.views - a.views).slice(0, 30);
   const maxViews = Math.max(1, ...top.map(r => r.views));
 
   const kpis: Array<[string, string, string?]> = [
@@ -101,9 +101,9 @@ export const buildHtml = (report: Report, thumbs: Map<string, ThumbImage> | null
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(ctx.title)} — Laporan ${esc(APP_NAME)}</title>
 <style>
-:root{--bg:#fff;--fg:#0f0f0f;--muted:#606060;--line:#e5e5e5;--chip:#f2f2f2;--red:#ff0000;--blue:#065fd4}
-@media (prefers-color-scheme:dark){:root{--bg:#0f0f0f;--fg:#f1f1f1;--muted:#aaa;--line:#333;--chip:#272727;--blue:#3ea6ff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Roboto,Arial,sans-serif}
+:root{--bg:#fff;--fg:#0f0f0f;--muted:#606060;--line:#e5e5e5;--chip:#f2f2f2;--red:#cc0000;--outlier:#0d9488;--blue:#065fd4}
+@media (prefers-color-scheme:dark){:root{--bg:#0f0f0f;--fg:#f1f1f1;--muted:#aaa;--line:#333;--chip:#272727;--outlier:#2dd4bf;--blue:#3ea6ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}
 .wrap{max-width:1200px;margin:0 auto;padding:32px 24px 64px}
 header{display:flex;gap:20px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:24px}
 .logo{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;color:var(--muted);margin-bottom:6px}
@@ -115,7 +115,7 @@ h1{margin:0;font-size:28px;line-height:1.2}h2{font-size:18px;margin:36px 0 12px}
 .kpi span{color:var(--muted);font-size:12px}.kpi small{color:var(--muted);font-size:11px}
 .bars{border:1px solid var(--line);border-radius:12px;padding:16px}
 .bar{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:12px;align-items:center;margin:4px 0;font-size:12px}
-.bar i{display:block;height:8px;border-radius:4px;background:var(--blue)}.bar i.o{background:var(--red)}
+.bar i{display:block;height:8px;border-radius:4px;background:var(--blue)}.bar i.o{background:var(--outlier)}
 .bar .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bar .v{text-align:right;color:var(--muted)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:800px){.grid2{grid-template-columns:1fr}}
 .card{border:1px solid var(--line);border-radius:12px;padding:16px}
@@ -127,7 +127,7 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
 .vt{font-weight:500;color:var(--fg)}.sub{color:var(--muted);font-size:12px}
 .grade{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:6px;color:#fff;font-weight:700;font-size:12px;margin-right:6px}
 .score{font-variant-numeric:tabular-nums}
-.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:1px 6px;font-size:11px;margin:1px}.out{background:#ff00001a;color:#cc0000}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:1px 6px;font-size:11px;margin:1px}.out{background:#0d94881f;color:var(--outlier)}
 .tags{display:flex;flex-wrap:wrap;gap:6px}.tags span{background:var(--chip);border-radius:8px;padding:4px 10px;font-size:12px}
 dl{display:grid;grid-template-columns:200px 1fr;gap:6px 16px;margin:0}dt{font-weight:500}dd{margin:0;color:var(--muted)}
 h3{font-size:15px;margin:0 0 12px}.blue{color:var(--blue)}
@@ -151,9 +151,9 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid va
 </head>
 <body><div class="wrap">
 <header>
-  ${avatar ? `<img class="avatar" src="${avatar.dataUrl}" alt="">` : ''}
+  ${avatar ? `<img class="avatar" src="${esc(avatar.dataUrl)}" alt="">` : ''}
   <div>
-    <div class="logo"><svg width="22" height="16" viewBox="0 0 28 20"><rect width="28" height="20" rx="5.5" fill="#f00"/><path d="M11.2 5.6v8.8l7.6-4.4z" fill="#fff"/></svg>${esc(APP_NAME)} • Laporan analisis</div>
+    <div class="logo"><svg width="20" height="20" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0f172a"/><rect x="7" y="18" width="4.5" height="7" rx="1.6" fill="#3da5ff"/><rect x="13.75" y="12.5" width="4.5" height="12.5" rx="1.6" fill="#2dd4bf"/><rect x="20.5" y="7" width="4.5" height="18" rx="1.6" fill="#ff3b30"/></svg>${esc(APP_NAME)} • Laporan analisis</div>
     <h1>${esc(ctx.title)}</h1>
     <div class="meta">${esc(sourceLabel(ctx))}${ch?.customUrl ? ` • ${esc(ch.customUrl)}` : ''} • ${formatFullNumber(s.totalVideos)} video • upload ${esc(formatDateId(s.firstPublished))} – ${esc(formatDateId(s.lastPublished))} • dibuat ${esc(formatDateId(ctx.generatedAt, true))}${ctx.scopeNote ? ` • ${esc(ctx.scopeNote)}` : ''}</div>
   </div>
@@ -181,7 +181,7 @@ ${s.topTags.length ? `<h2>Tag paling sering</h2><div class="tags">${s.topTags.sl
 
 <h2>Semua video (${formatFullNumber(rows.length)})</h2>
 <div style="overflow-x:auto"><table>
-<thead><tr><th>#</th><th>Thumbnail</th><th>Video</th><th>Views</th><th>Likes</th><th>Komentar</th><th>ER</th><th>Views/hari</th><th>Judul</th><th>Thumbnail</th></tr></thead>
+<thead><tr><th>#</th><th>Thumbnail</th><th>Video</th><th>Views</th><th>Likes</th><th>Komentar</th><th>ER</th><th>Views/hari</th><th>Skor Judul</th><th>Skor Thumbnail</th></tr></thead>
 <tbody>${rows
     .map(
       r => `<tr><td class="n">${r.no}</td><td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img class="thumb" loading="lazy" src="${esc(imgSrc(r.id, r.thumbnails.medium))}" alt=""></a></td>
