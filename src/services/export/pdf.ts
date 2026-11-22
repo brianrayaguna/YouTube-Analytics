@@ -339,7 +339,7 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
     startY: y + 2.5,
     margin: { left: M, right: M, bottom: 16 },
     head: [['', 'Slot', 'Upload', 'Performa', 'Median views', 'Keyakinan']],
-    body: slotRows.length ? slotRows : [['-', 'Data belum cukup (butuh minimal 2 upload per blok 3 jam)', '', '', '', '']],
+    body: slotRows.length ? slotRows : [['-', 'Data belum mencukupi (diperlukan minimal 2 unggahan per blok 3 jam)', '', '', '', '']],
     theme: 'plain',
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 1.3, valign: 'middle', textColor: INK, lineColor: LINE, lineWidth: { bottom: 0.2 } },
     headStyles: { fillColor: INK, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
@@ -356,7 +356,7 @@ export const buildPdf = async (report: Report, thumbs: Map<string, ThumbImage> |
   doc.setFontSize(7);
   doc.setTextColor(...MUTED);
   const noteY = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 5;
-  doc.text('* kurang dari 2 upload - belum bisa diperingkat. Tabel per jam lengkap tersedia di Excel, HTML, JSON, dan CSV jadwal.', M, noteY);
+  doc.text('* kurang dari 2 unggahan - belum dapat diperingkat. Tabel per jam lengkap tersedia pada berkas Excel, HTML, JSON, dan CSV jadwal.', M, noteY);
 
   // ---------- Daftar semua video (landscape) ----------
   doc.addPage('a4', 'landscape');

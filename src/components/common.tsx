@@ -30,13 +30,13 @@ export const EmptyState: React.FC<{
     <div className="flex h-20 w-20 items-center justify-center rounded-full bg-secondary">
       <Icon className="h-10 w-10 text-muted-foreground" strokeWidth={1.35} aria-hidden="true" />
     </div>
-    <h2 className="mt-5 text-xl font-semibold text-foreground">{title}</h2>
+    <h2 className="mt-5 text-xl font-medium text-foreground">{title}</h2>
     {description && <div className="mt-2 text-sm leading-6 text-muted-foreground">{description}</div>}
     {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
   </div>
 );
 
-/** Status untuk halaman analisis yang butuh data channel terlebih dahulu. */
+/** Status untuk halaman analisis yang memerlukan data channel terlebih dahulu. */
 export const NeedDataState: React.FC<{
   icon: LucideIcon;
   feature: string;
@@ -45,8 +45,8 @@ export const NeedDataState: React.FC<{
 }> = ({ icon, feature, onFocusSearch, onLoadDemo }) => (
   <EmptyState
     icon={icon}
-    title={`${feature} butuh data`}
-    description="Analisis channel, playlist, atau kata kunci dari kolom pencarian di atas, atau muat data contoh untuk mencoba langsung."
+    title={`${feature} memerlukan data analisis`}
+    description="Lakukan analisis channel, playlist, atau kata kunci melalui kolom pencarian, atau muat data contoh untuk meninjau modul secara langsung."
     action={
       <>
         <button type="button" onClick={onFocusSearch} className="yt-pill-primary">
@@ -78,7 +78,7 @@ export const StatCard: React.FC<{
     </div>
     <p
       className={cn(
-        'mt-2 text-2xl font-semibold tracking-tight tabular-nums sm:text-[28px] sm:leading-9',
+        'mt-2 text-2xl font-medium tracking-tight tabular-nums sm:text-[28px] sm:leading-9',
         accent === 'red' && 'text-destructive',
         accent === 'green' && 'text-success',
         accent === 'blue' && 'text-primary',
@@ -103,7 +103,7 @@ export const SectionCard: React.FC<{
   <section className={cn('yt-card p-4 sm:p-6', className)}>
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        <h2 className="text-base font-medium text-foreground">{title}</h2>
         {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions}
@@ -112,19 +112,21 @@ export const SectionCard: React.FC<{
   </section>
 );
 
-/** Tab bergaris bawah dengan roving tabindex dan navigasi panah WAI-ARIA. */
+/** Tab bergaris bawah selaras bilah tab YouTube dengan roving tabindex WAI-ARIA. */
 export const StudioTabs = <T extends string,>({
   tabs,
   value,
   onChange,
   label = 'Bagian halaman',
   idPrefix = 'studio',
+  className,
 }: {
   tabs: Array<{ id: T; label: string }>;
   value: T;
   onChange: (id: T) => void;
   label?: string;
   idPrefix?: string;
+  className?: string;
 }) => {
   const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -143,7 +145,7 @@ export const StudioTabs = <T extends string,>({
 
   return (
     <div
-      className="mb-6 flex gap-6 overflow-x-auto border-b border-border no-scrollbar"
+      className={cn('mb-5 flex gap-6 overflow-x-auto border-b border-border no-scrollbar', className)}
       role="tablist"
       aria-label={label}
     >
@@ -163,7 +165,7 @@ export const StudioTabs = <T extends string,>({
             onClick={() => onChange(t.id)}
             onKeyDown={e => handleKeyDown(e, idx)}
             className={cn(
-              'shrink-0 border-b-[3px] pb-2.5 pt-1 text-sm font-medium uppercase tracking-wide transition-colors',
+              'shrink-0 border-b-2 pb-3 pt-2 text-[15px] font-medium transition-colors',
               selected
                 ? 'border-foreground text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'

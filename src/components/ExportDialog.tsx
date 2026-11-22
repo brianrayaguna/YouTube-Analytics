@@ -3,7 +3,7 @@ import { FileSpreadsheet, FileText, Globe, Braces, Sheet, Package, Loader2, Chec
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Switch } from './ui/switch';
 import { VideoItem, ShowToast } from '../types';
-import type { ExportFormat, ExportContext } from '../services/export';
+import type { ExportFormat, ExportContext, ZipExportKind } from '../services/export';
 import { formatFullNumber } from '../lib/format';
 import { cn } from '@/lib/utils';
 
@@ -15,18 +15,18 @@ interface ExportDialogProps {
   scopes: Partial<Record<ExportScope, VideoItem[]>>;
   defaultScope?: ExportScope;
   context: Omit<ExportContext, 'generatedAt' | 'scopeNote'>;
-  /** Keterangan filter aktif untuk ditulis di laporan */
+  /** Keterangan filter aktif untuk ditulis pada laporan */
   filterNote?: string;
   onToast: ShowToast;
 }
 
 const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; icon: typeof FileText; description: string; recommended?: boolean }> = [
-  { id: 'xlsx', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet, description: 'Ringkasan, jadwal upload, tabel + thumbnail, tag', recommended: true },
-  { id: 'pdf', label: 'PDF', ext: '.pdf', icon: FileText, description: 'Laporan siap cetak + jadwal upload' },
-  { id: 'html', label: 'HTML', ext: '.html', icon: Globe, description: 'Laporan 1 file + peta panas jadwal' },
-  { id: 'json', label: 'JSON', ext: '.json', icon: Braces, description: 'Data terstruktur, skor & jadwal' },
-  { id: 'csv', label: 'CSV', ext: '.csv', icon: Sheet, description: 'Tabel video atau tabel jadwal upload' },
-  { id: 'zip', label: 'Paket lengkap', ext: '.zip', icon: Package, description: 'Semua format + CSV jadwal + thumbnail HD' },
+  { id: 'xlsx', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet, description: 'Ringkasan, jadwal unggah, tabel beserta thumbnail dan tag', recommended: true },
+  { id: 'pdf', label: 'PDF', ext: '.pdf', icon: FileText, description: 'Laporan siap cetak beserta ringkasan jadwal unggah' },
+  { id: 'html', label: 'HTML', ext: '.html', icon: Globe, description: 'Laporan satu berkas beserta peta panas jadwal' },
+  { id: 'json', label: 'JSON', ext: '.json', icon: Braces, description: 'Data terstruktur lengkap dengan skor dan jadwal' },
+  { id: 'csv', label: 'CSV', ext: '.csv', icon: Sheet, description: 'Tabel data video atau ringkasan jadwal unggah' },
+  { id: 'zip', label: 'Arsip ZIP', ext: '.zip', icon: Package, description: 'Paket laporan lengkap atau khusus koleksi thumbnail' },
 ];
 
 const SCOPE_LABEL: Record<ExportScope, string> = {
@@ -41,6 +41,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
   const [format, setFormat] = useState<ExportFormat>('xlsx');
   const [scope, setScope] = useState<ExportScope>(defaultScope);
   const [withThumbs, setWithThumbs] = useState(true);
+  const [zipKind, setZipKind] = useState<ZipExportKind>('bundle');
   const [zipSize, setZipSize] = useState<'maxres' | 'hq'>('maxres');
   const [csvKind, setCsvKind] = useState<'videos' | 'schedule'>('videos');
   const [fileName, setFileName] = useState('');
@@ -53,11 +54,12 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
     setScope(scopes[defaultScope]?.length ? defaultScope : 'filtered');
     setFileName(`${context.title.replace(/^Playlist: |^Hasil pencarian: /, '')}_${todayStamp()}`);
     setProgress(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset hanya saat dialog dibuka
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- atur ulang hanya saat dialog dibuka
   }, [open]);
 
   const videos = scopes[scope] ?? [];
   const info = FORMATS.find(f => f.id === format)!;
+  const isThumbnailsOnlyZip = format === 'zip' && zipKind === 'thumbnails';
   const thumbsSupported = format !== 'csv';
 
   const scopeNote =
@@ -72,7 +74,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
     const controller = new AbortController();
     abortRef.current = controller;
     setRunning(true);
-    setProgress({ label: 'Menyiapkan…', percent: 0 });
+    setProgress({ label: 'Menyiapkan ekspor…', percent: 0 });
     try {
       const { runExport } = await import('../services/export');
       const res = await runExport({
@@ -80,22 +82,25 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
         videos,
         context: { ...context, scopeNote, generatedAt: new Date() },
         fileName,
-        includeThumbnails: thumbsSupported && withThumbs,
+        includeThumbnails: isThumbnailsOnlyZip || (thumbsSupported && withThumbs),
+        zipKind,
         zipThumbnailSize: zipSize,
         csvKind,
         signal: controller.signal,
         onProgress: (label, percent) => setProgress({ label, percent }),
       });
-      onToast(`${info.label} diunduh: ${res.fileName}`, 'success');
+      onToast(`${isThumbnailsOnlyZip ? 'Arsip thumbnail' : info.label} diunduh: ${res.fileName}`, 'success');
       onOpenChange(false);
     } catch (e) {
-      if ((e as Error)?.name === 'AbortError') onToast('Ekspor dibatalkan', 'info');
-      else onToast(e instanceof Error ? e.message : 'Gagal mengekspor', 'error');
+      if ((e as Error)?.name === 'AbortError') onToast('Proses ekspor dibatalkan', 'info');
+      else onToast(e instanceof Error ? e.message : 'Gagal mengekspor data', 'error');
     } finally {
       setRunning(false);
       abortRef.current = null;
     }
   };
+
+  const actionLabel = isThumbnailsOnlyZip ? 'Ekspor Thumbnail ZIP' : `Ekspor ${info.label}`;
 
   return (
     <Dialog
@@ -107,13 +112,13 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
     >
       <DialogContent className="max-h-[92vh] gap-0 overflow-y-auto rounded-xl border border-border bg-popover p-0 sm:max-w-[640px] sm:rounded-xl">
         <DialogHeader className="px-6 pb-2 pt-6 text-left">
-          <DialogTitle className="text-xl font-semibold">Ekspor data</DialogTitle>
+          <DialogTitle className="text-xl font-medium">Ekspor data</DialogTitle>
           <DialogDescription>{context.title}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 px-6 py-4">
           <section>
-            <h3 className="yt-label mb-2">Format</h3>
+            <h3 className="yt-label mb-2">Format berkas</h3>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {FORMATS.map(f => {
                 const Icon = f.icon;
@@ -126,7 +131,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                     onClick={() => setFormat(f.id)}
                     aria-pressed={active}
                     className={cn(
-                      'relative flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors',
+                      'relative flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       active ? 'border-primary bg-primary/5' : 'border-border hover:bg-secondary'
                     )}
                   >
@@ -139,26 +144,39 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                       </span>
                     </span>
                     <span className="text-xs leading-4 text-muted-foreground">{f.description}</span>
-                    {f.recommended && <span className="mt-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">Disarankan</span>}
+                    {f.recommended && <span className="mt-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">Direkomendasikan</span>}
                   </button>
                 );
               })}
             </div>
+
             {format === 'csv' && (
-              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Isi CSV">
+              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Isi berkas CSV">
                 <span className="text-xs text-muted-foreground">Isi CSV:</span>
                 <button type="button" className="yt-chip" aria-pressed={csvKind === 'videos'} data-active={csvKind === 'videos'} disabled={running} onClick={() => setCsvKind('videos')}>
-                  Data video (+ hari & jam upload)
+                  Data video (termasuk hari &amp; jam unggah)
                 </button>
                 <button type="button" className="yt-chip" aria-pressed={csvKind === 'schedule'} data-active={csvKind === 'schedule'} disabled={running} onClick={() => setCsvKind('schedule')}>
-                  Jadwal upload
+                  Ringkasan jadwal unggah
+                </button>
+              </div>
+            )}
+
+            {format === 'zip' && (
+              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Isi arsip ZIP">
+                <span className="text-xs text-muted-foreground">Isi ZIP:</span>
+                <button type="button" className="yt-chip" aria-pressed={zipKind === 'bundle'} data-active={zipKind === 'bundle'} disabled={running} onClick={() => setZipKind('bundle')}>
+                  Paket laporan lengkap
+                </button>
+                <button type="button" className="yt-chip" aria-pressed={zipKind === 'thumbnails'} data-active={zipKind === 'thumbnails'} disabled={running} onClick={() => setZipKind('thumbnails')}>
+                  Koleksi thumbnail saja
                 </button>
               </div>
             )}
           </section>
 
           <section>
-            <h3 className="yt-label mb-2">Data</h3>
+            <h3 className="yt-label mb-2">Cakupan data</h3>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Cakupan data ekspor">
               {(['filtered', 'all', 'selected'] as ExportScope[])
                 .filter(s => scopes[s] && (s !== 'selected' || scopes[s]!.length > 0))
@@ -180,40 +198,56 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
           </section>
 
           <section>
-            <label className={cn('flex items-center justify-between gap-4', !thumbsSupported && 'opacity-50')}>
-              <span className="flex items-start gap-3">
-                <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-                <span className="text-sm">
-                  <span className="font-medium text-foreground">Sertakan thumbnail</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {format === 'csv'
-                      ? 'CSV hanya berisi URL thumbnail'
-                      : format === 'json'
-                        ? 'Gambar disisipkan sebagai base64 (file lebih besar)'
-                        : format === 'zip'
-                          ? 'Gambar di dalam laporan + folder thumbnails/ resolusi tinggi'
-                          : 'Gambar thumbnail tampil langsung di dalam laporan'}
-                    {videos.length > 1000 && thumbsSupported ? ' • tersemat untuk 1.000 video pertama' : ''}
-                  </span>
-                </span>
-              </span>
-              <Switch checked={thumbsSupported && withThumbs} onCheckedChange={setWithThumbs} disabled={!thumbsSupported || running} aria-label="Sertakan thumbnail" />
-            </label>
-            {format === 'zip' && withThumbs && (
-              <div className="ml-8 mt-3 flex flex-wrap gap-2" role="group" aria-label="Resolusi thumbnail ZIP">
-                <button type="button" className="yt-chip" aria-pressed={zipSize === 'maxres'} data-active={zipSize === 'maxres'} onClick={() => setZipSize('maxres')} disabled={running}>
-                  HD 1280×720
-                </button>
-                <button type="button" className="yt-chip" aria-pressed={zipSize === 'hq'} data-active={zipSize === 'hq'} onClick={() => setZipSize('hq')} disabled={running}>
-                  Sedang 480×360
-                </button>
+            {isThumbnailsOnlyZip ? (
+              <div>
+                <h3 className="yt-label mb-2">Resolusi thumbnail</h3>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Resolusi thumbnail ZIP">
+                  <button type="button" className="yt-chip" aria-pressed={zipSize === 'maxres'} data-active={zipSize === 'maxres'} onClick={() => setZipSize('maxres')} disabled={running}>
+                    HD 1280×720
+                  </button>
+                  <button type="button" className="yt-chip" aria-pressed={zipSize === 'hq'} data-active={zipSize === 'hq'} onClick={() => setZipSize('hq')} disabled={running}>
+                    Standar 480×360
+                  </button>
+                </div>
               </div>
+            ) : (
+              <>
+                <label className={cn('flex items-center justify-between gap-4', !thumbsSupported && 'opacity-50')}>
+                  <span className="flex items-start gap-3">
+                    <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+                    <span className="text-sm">
+                      <span className="font-medium text-foreground">Sertakan thumbnail</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {format === 'csv'
+                          ? 'Format CSV hanya menyertakan URL thumbnail'
+                          : format === 'json'
+                            ? 'Gambar disisipkan dalam format base64 (ukuran berkas lebih besar)'
+                            : format === 'zip'
+                              ? 'Thumbnail disematkan pada laporan serta folder thumbnails/ beresolusi tinggi'
+                              : 'Gambar thumbnail ditampilkan langsung di dalam dokumen laporan'}
+                        {videos.length > 1000 && thumbsSupported ? ' • tersemat untuk 1.000 video pertama' : ''}
+                      </span>
+                    </span>
+                  </span>
+                  <Switch checked={thumbsSupported && withThumbs} onCheckedChange={setWithThumbs} disabled={!thumbsSupported || running} aria-label="Sertakan thumbnail" />
+                </label>
+                {format === 'zip' && withThumbs && (
+                  <div className="ml-8 mt-3 flex flex-wrap gap-2" role="group" aria-label="Resolusi thumbnail ZIP">
+                    <button type="button" className="yt-chip" aria-pressed={zipSize === 'maxres'} data-active={zipSize === 'maxres'} onClick={() => setZipSize('maxres')} disabled={running}>
+                      HD 1280×720
+                    </button>
+                    <button type="button" className="yt-chip" aria-pressed={zipSize === 'hq'} data-active={zipSize === 'hq'} onClick={() => setZipSize('hq')} disabled={running}>
+                      Standar 480×360
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
           <section>
             <label className="yt-label mb-2 block" htmlFor="export-name">
-              Nama file
+              Nama berkas
             </label>
             <div className="flex items-center rounded-lg border border-input bg-background pr-3 focus-within:border-primary">
               <input
@@ -223,7 +257,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
                 disabled={running}
                 className="h-10 min-w-0 flex-1 bg-transparent px-3 text-sm text-foreground outline-none"
               />
-              <span className="text-sm text-muted-foreground">{info.ext}</span>
+              <span className="text-sm text-muted-foreground">{isThumbnailsOnlyZip ? '_thumbnail.zip' : info.ext}</span>
             </div>
           </section>
 
@@ -260,8 +294,8 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ open, onOpenChange, scopes,
             >
               {running ? 'Batalkan' : 'Tutup'}
             </button>
-            <button type="button" onClick={start} disabled={running || !videos.length} className="yt-pill-blue min-w-[120px]">
-              {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Ekspor ${info.label}`}
+            <button type="button" onClick={start} disabled={running || !videos.length} className="yt-pill-blue min-w-[128px]">
+              {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : actionLabel}
             </button>
           </div>
         </div>

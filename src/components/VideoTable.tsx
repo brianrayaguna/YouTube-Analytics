@@ -80,13 +80,13 @@ const VideoTable: React.FC<VideoTableProps> = ({
                 </th>
               )}
               <th scope="col" className="px-4 py-3 text-left font-medium">Video</th>
-              {sortHeader('Views', 'popular')}
+              {sortHeader('Tayangan', 'popular')}
               <th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">vs Median</th>
               {sortHeader('ER', 'highest_er')}
               {sortHeader('Suka', 'most_liked')}
               {sortHeader('Komentar', 'most_commented')}
               <th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">Durasi</th>
-              {sortHeader('Diupload', 'newest', 'oldest')}
+              {sortHeader('Diunggah', 'newest', 'oldest')}
               <th scope="col" className="w-12 px-2 py-3 text-center">
                 <span className="sr-only">Simpan</span>
               </th>

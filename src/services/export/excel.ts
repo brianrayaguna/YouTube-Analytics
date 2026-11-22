@@ -414,7 +414,7 @@ const buildScheduleSheet = (wb: Workbook, report: Report) => {
   const slotTable = (title: string, list: ScheduleSlotRow[]) => {
     heading(title);
     if (!list.length) {
-      ws.getCell(r, 1).value = 'Data belum cukup (butuh minimal 2 upload per blok 3 jam).';
+      ws.getCell(r, 1).value = 'Data belum mencukupi (diperlukan minimal 2 unggahan per blok 3 jam).';
       ws.getCell(r, 1).font = { name: 'Arial', size: 10, italic: true, color: { argb: MUTED } };
       r += 2;
       return;

@@ -29,7 +29,7 @@ const ContentGapAnalyzer: React.FC<ContentGapAnalyzerProps> = ({ channelVideos, 
 
   const runAnalysis = async () => {
     if (!apiKey) {
-      onToast('Atur API Key terlebih dahulu', 'error');
+      onToast('Diperlukan konfigurasi kunci API terlebih dahulu', 'error');
       onRequireApiKey();
       return;
     }
@@ -98,8 +98,8 @@ const ContentGapAnalyzer: React.FC<ContentGapAnalyzerProps> = ({ channelVideos, 
       {!result ? (
         <EmptyState
           icon={Lightbulb}
-          title="Temukan topik yang belum Anda garap"
-          description="Kami mengambil 100 video trending di wilayah pilihan (±2 unit kuota), mengekstrak topik dari judul & tag, lalu membandingkannya dengan topik channel Anda."
+          title="Identifikasi peluang topik yang belum dibahas"
+          description="Sistem mengambil 100 video trending pada wilayah terpilih (±2 unit kuota), mengekstrak topik dari judul dan tag, lalu membandingkannya dengan topik channel."
           action={
             <button type="button" onClick={runAnalysis} disabled={loading} className="yt-pill-primary">
               {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />} Mulai analisis
@@ -149,7 +149,7 @@ const ContentGapAnalyzer: React.FC<ContentGapAnalyzerProps> = ({ channelVideos, 
           {result.recommendations.length === 0 ? (
             <SectionCard title="Rekomendasi">
               <p className="text-sm text-muted-foreground">
-                Tidak ditemukan topik trending yang berulang di wilayah ini. Coba wilayah lain.
+                Tidak ditemukan topik trending yang berulang pada wilayah ini. Pilih wilayah lain untuk perbandingan.
               </p>
             </SectionCard>
           ) : (

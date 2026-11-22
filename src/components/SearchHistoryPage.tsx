@@ -91,8 +91,8 @@ const SearchHistoryPage: React.FC<SearchHistoryPageProps> = ({ onSearch, onToast
           {groups.length === 0 ? (
             <EmptyState
               icon={History}
-              title={history.length ? 'Tidak ada yang cocok' : 'Belum ada riwayat'}
-              description={history.length ? 'Ubah filter atau kata pencarian.' : 'Setiap analisis yang berhasil akan muncul di sini agar mudah diulang.'}
+              title={history.length ? 'Tidak ditemukan hasil yang sesuai' : 'Belum terdapat riwayat pencarian'}
+              description={history.length ? 'Sesuaikan filter jenis atau kata kunci pencarian.' : 'Setiap analisis yang berhasil akan tercatat pada halaman ini untuk memudahkan pengulangan.'}
             />
           ) : (
             <div className="space-y-8">

@@ -78,8 +78,7 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({ videoUrl, videoTitle,
           ) : (
             !checking && (
               <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-                Mesin lokal belum aktif. Buka menu <b className="font-medium text-foreground">Video Downloader → Perangkat ini</b> untuk memasangnya
-                sekali, lalu unduhan tersimpan langsung tanpa situs pihak ketiga.
+                Layanan lokal belum aktif. Buka menu <b className="font-medium text-foreground">Video Downloader → Perangkat ini</b> untuk melakukan pemasangan satu kali agar unduhan tersimpan langsung tanpa situs pihak ketiga.
               </p>
             )
           )}
@@ -108,7 +107,7 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({ videoUrl, videoTitle,
         </ul>
 
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
-          Unduh hanya untuk penggunaan pribadi dan hormati hak cipta kreator.
+          Pengunduhan hanya diperuntukkan bagi penggunaan pribadi dengan menghormati hak cipta kreator.
         </p>
       </DialogContent>
     </Dialog>

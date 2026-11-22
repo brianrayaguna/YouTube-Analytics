@@ -114,29 +114,29 @@ const describeApiError = (reason: string | undefined, fallback: string): string 
   switch (reason) {
     case 'quotaExceeded':
     case 'dailyLimitExceeded':
-      return 'Kuota YouTube API harian sudah habis. Coba lagi besok atau gunakan API key lain.';
+      return 'Kuota harian YouTube Data API telah tercapai. Gunakan kunci API lain atau ulangi setelah kuota direset.';
     case 'keyInvalid':
     case 'badRequest':
       return fallback.toLowerCase().includes('api key')
-        ? 'API Key tidak valid. Periksa kembali di Pengaturan.'
+        ? 'Kunci API tidak valid. Periksa konfigurasi pada menu Pengaturan.'
         : fallback;
     case 'accessNotConfigured':
     case 'SERVICE_DISABLED':
-      return 'YouTube Data API v3 belum diaktifkan untuk API key ini di Google Cloud Console.';
+      return 'Layanan YouTube Data API v3 belum diaktifkan untuk kunci API tersebut pada Google Cloud Console.';
     case 'keyExpired':
-      return 'API Key sudah kedaluwarsa. Buat API key baru.';
+      return 'Kunci API telah kedaluwarsa. Diperlukan kunci API baru.';
     case 'forbidden':
     case 'ipRefererBlocked':
-      return 'API Key tidak diizinkan untuk domain/aplikasi ini (cek pembatasan API key).';
+      return 'Kunci API tidak diizinkan untuk domain ini. Periksa pembatasan kunci API pada Google Cloud Console.';
     case 'playlistNotFound':
       return 'Playlist tidak ditemukan atau bersifat privat.';
     case 'channelNotFound':
       return 'Channel tidak ditemukan.';
     case 'rateLimitExceeded':
     case 'userRateLimitExceeded':
-      return 'Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.';
+      return 'Batas frekuensi permintaan terlampaui. Tunggu beberapa saat sebelum mengulangi permintaan.';
     default:
-      return fallback || 'Terjadi kesalahan saat menghubungi YouTube API.';
+      return fallback || 'Terjadi gangguan saat menghubungi YouTube Data API.';
   }
 };
 
@@ -186,9 +186,9 @@ const apiGet = async (
       throw err instanceof Error ? err : new DOMException('Permintaan dibatalkan', 'AbortError');
     }
     if (err instanceof DOMException && err.name === 'TimeoutError') {
-      throw new YouTubeApiError('Permintaan ke YouTube API melebihi batas waktu. Coba lagi.');
+      throw new YouTubeApiError('Permintaan ke YouTube Data API melebihi batas waktu. Ulangi permintaan.');
     }
-    throw new YouTubeApiError('Gagal terhubung ke YouTube API. Periksa koneksi internet.');
+    throw new YouTubeApiError('Gagal terhubung ke YouTube API. Periksa koneksi jaringan.');
   }
 
   trackQuota(cost);
@@ -521,7 +521,7 @@ export const fetchYouTubeData = async (
 
   if (parsed.kind === 'playlist') {
     const ids = await fetchPlaylistVideoIds(apiKey, parsed.id, limit, signal);
-    if (!ids.length) throw new YouTubeApiError('Playlist kosong atau tidak bisa diakses.');
+    if (!ids.length) throw new YouTubeApiError('Playlist kosong atau tidak dapat diakses.');
     const [videos, meta] = await Promise.all([
       fetchVideoDetails(apiKey, ids, signal),
       apiGet('playlists', { part: 'snippet', id: parsed.id }, apiKey, 1, signal).catch(err => {

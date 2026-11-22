@@ -289,7 +289,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
               {formatPeriodRange(scope.range, videos.length ? videos : allVideos)}
             </span>
             <span className="inline-flex items-center gap-1.5 text-xs">
-              <Globe className="h-3.5 w-3.5" aria-hidden="true" /> Waktu dalam zona waktu Anda ({timeZone})
+              <Globe className="h-3.5 w-3.5" aria-hidden="true" /> Waktu mengikuti zona waktu lokal perangkat ({timeZone})
             </span>
           </span>
         }
@@ -353,7 +353,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
             Dihitung dari {formatFullNumber(allVideos.length)} video{' '}
             {data.source === 'channel' ? (fetchedAll ? '(semua upload channel)' : 'terbaru channel') : 'hasil analisis'} sesuai
             batas jumlah video di kolom pencarian
-            {fetchedAll ? '' : `; channel ini punya ${formatFullNumber(scope.channelTotal ?? 0)} video`}
+            {fetchedAll ? '' : `; channel ini memiliki ${formatFullNumber(scope.channelTotal ?? 0)} video`}
             {fetchMoreButton && <> ({fetchMoreButton})</>}. Performa = views ÷ perkiraan views video seusia (1,0× = rata-rata).
           </span>
         </p>
@@ -453,8 +453,8 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
               )}
 
               <SectionCard
-                title="Peta panas upload"
-                description={`${METRIC_DESCRIPTION[metric]}. Pilih sel (atau pakai tombol panah) untuk memeriksa detail slot.`}
+                title="Peta panas unggahan"
+                description={`${METRIC_DESCRIPTION[metric]}. Pilih sel atau gunakan tombol panah untuk memeriksa detail slot.`}
                 actions={
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Metrik peta panas">
                     {([
@@ -882,7 +882,7 @@ const UploadScheduleAnalyzer: React.FC<UploadScheduleAnalyzerProps> = ({ data, f
 };
 
 const NotEnough = () => (
-  <p className="text-sm text-muted-foreground">Data belum cukup — butuh beberapa upload di jam yang sama.</p>
+  <p className="text-sm text-muted-foreground">Data belum mencukupi — diperlukan minimal {MIN_SLOT_UPLOADS} unggahan pada jam yang sama.</p>
 );
 
 const SlotList: React.FC<{ slots: Slot[]; tone: 'good' | 'bad'; onSelect?: (s: Slot) => void }> = ({ slots, tone, onSelect }) => (

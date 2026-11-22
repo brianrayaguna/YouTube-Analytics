@@ -76,8 +76,8 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onOpenChange, filters
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto rounded-xl border border-border bg-popover p-0 sm:max-w-[880px] sm:rounded-xl">
         <DialogHeader className="px-6 pb-2 pt-6 text-left">
-          <DialogTitle className="text-xl font-semibold">Filter hasil</DialogTitle>
-          <DialogDescription>Filter diterapkan langsung pada video yang sudah dimuat tanpa memakai kuota API.</DialogDescription>
+          <DialogTitle className="text-xl font-medium">Filter hasil</DialogTitle>
+          <DialogDescription>Filter diterapkan secara langsung pada daftar video yang telah dimuat tanpa menggunakan kuota API.</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-4 sm:grid-cols-2 md:grid-cols-4">

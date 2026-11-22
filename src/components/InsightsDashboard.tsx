@@ -244,7 +244,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview, fetchLimi
           <p className="flex items-start gap-2">
             <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
-              Menampilkan video yang diupload pada periode ini. Views, likes, dan komentar adalah total sepanjang umur video
+              Menampilkan video yang diunggah pada periode ini. Tayangan, suka, dan komentar merupakan akumulasi sepanjang usia video
               (YouTube Data API tidak menyediakan statistik per tanggal).
             </span>
           </p>
@@ -252,8 +252,8 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview, fetchLimi
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning">
               <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>
-                Data yang dimuat hanya berisi video sejak {formatDate(period.coverage.oldest.toISOString())}. Naikkan jumlah video di
-                kolom pencarian agar periode ini terhitung lengkap.
+                Data yang dimuat hanya mencakup video sejak {formatDate(period.coverage.oldest.toISOString())}. Tingkatkan batas jumlah video pada
+                kolom pencarian agar cakupan periode ini lengkap.
               </span>
               {onFetchMore && !fetchedAll && nextFetch && (
                 <button
@@ -274,8 +274,8 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview, fetchLimi
       {videos.length === 0 ? (
         <EmptyState
           icon={CalendarX2}
-          title="Tidak ada video di periode ini"
-          description={`Tidak ada video yang diupload pada ${
+          title="Tidak ada video pada periode ini"
+          description={`Tidak ada video yang diunggah pada ${
             periodId === 'custom' ? formatPeriodRange(period.range) : period.range.label.toLowerCase()
           }. Pilih periode yang lebih panjang.`}
           action={
@@ -509,7 +509,7 @@ const InsightsDashboard: React.FC<InsightsProps> = ({ data, onPreview, fetchLimi
                 <StatCard label="Tag unik" value={formatFullNumber(tagStats.unique)} hint={tagStats.unique > 40 ? '40 teratas ditampilkan' : undefined} />
                 <StatCard label="Panjang judul" value={`${tagStats.avgTitleLength.toFixed(0)}`} hint="karakter rata-rata (ideal 40–60)" />
               </div>
-              <SectionCard title="Tag paling sering dipakai" description="Frekuensi dan rata-rata views video yang memakai tag tersebut">
+              <SectionCard title="Tag paling sering digunakan" description="Frekuensi dan rata-rata tayangan video yang menggunakan tag tersebut">
                 {tagStats.top.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Video tidak memiliki tag publik.</p>
                 ) : (

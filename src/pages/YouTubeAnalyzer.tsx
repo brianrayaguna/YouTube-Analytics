@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import {
   SlidersHorizontal,
   Link2,
-  ImageDown,
   FileDown,
   CheckSquare,
   X,
@@ -22,7 +21,6 @@ import {
   Sparkles,
   LayoutGrid,
   Table2,
-  ArrowUpDown,
 } from 'lucide-react';
 import {
   ToastState,
@@ -45,7 +43,7 @@ import SkeletonCard from '../components/SkeletonCard';
 import VideoGrid from '../components/VideoGrid';
 import VideoTable from '../components/VideoTable';
 import ChannelHeader from '../components/ChannelHeader';
-import { EmptyState, NeedDataState, PageHeader } from '../components/common';
+import { EmptyState, NeedDataState, PageHeader, StudioTabs } from '../components/common';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,7 +63,6 @@ import {
 } from '../services/youtubeService';
 import { copyToClipboard } from '../services/exportService';
 import type { ExportScope } from '../components/ExportDialog';
-import { generateZip } from '../services/zipService';
 import { addToSearchHistory, getSearchHistory, subscribeSearchHistory, SearchHistoryItem } from '../services/historyService';
 import {
   applyFilters,
@@ -98,8 +95,15 @@ const FilterDialog = lazy(() => import('../components/FilterDialog'));
 
 const GRID_MODES: AnalysisMode[] = ['dashboard', 'trending', 'saved'];
 const ALL_MODES = new Set<AnalysisMode>(ALL_NAV_ITEMS.map(i => i.mode));
-const ALL_SORTS: SortOption[] = ['popular', 'newest', 'oldest', 'highest_er', 'most_liked', 'most_commented'];
-const EXAMPLE_QUERIES = ['@MrBeast', '@windahbasudara', 'review hp terbaru'];
+const PRIMARY_SORTS: SortOption[] = ['newest', 'popular', 'oldest'];
+const SECONDARY_SORTS: SortOption[] = ['highest_er', 'most_liked', 'most_commented'];
+const ALL_SORTS: SortOption[] = [...PRIMARY_SORTS, ...SECONDARY_SORTS];
+const FORMAT_TABS: Array<{ id: ContentTypeFilter; label: string }> = [
+  { id: 'all', label: 'Semua' },
+  { id: 'long', label: 'Video' },
+  { id: 'shorts', label: 'Shorts' },
+];
+const EXAMPLE_QUERIES = ['@YouTube', 'tutorial editing video', 'ulasan teknologi terbaru'];
 const THEME_PREF_KEY = 'yt_theme_pref';
 
 const readLocal = <T,>(key: string, fallback: T, parse: (raw: string) => T = JSON.parse): T => {
@@ -152,7 +156,7 @@ const PageFallback = () => (
 const YouTubeAnalyzer: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // --- Theme (mengikuti preferensi sistem secara default tanpa mematok localStorage saat mount) ---
+  // --- Tema (mengikuti preferensi sistem secara default tanpa mematok localStorage saat mount) ---
   const [themePref, setThemePref] = useState<ThemePreference>(readInitialThemePref);
   const [systemDark, setSystemDark] = useState<boolean>(getSystemDark);
   const darkMode = themePref === 'system' ? systemDark : themePref === 'dark';
@@ -210,7 +214,6 @@ const YouTubeAnalyzer: React.FC = () => {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportScope, setExportScope] = useState<ExportScope>('filtered');
 
@@ -266,7 +269,7 @@ const YouTubeAnalyzer: React.FC = () => {
     enabled: !previewId && !settingsOpen && !filtersOpen && !exportOpen && !mobileNavOpen,
   });
 
-  // --- Effects: Theme sync with OS + cross-tab ---
+  // --- Effects: Sinkronisasi tema OS & antar-tab ---
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
@@ -286,10 +289,10 @@ const YouTubeAnalyzer: React.FC = () => {
     const scheme = themePref === 'system' ? 'light dark' : themePref;
     const csMeta = document.querySelector('meta[name="color-scheme"]');
     if (csMeta) csMeta.setAttribute('content', scheme);
-    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', darkMode ? '#0F1115' : '#FFFFFF'));
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', darkMode ? '#0F0F0F' : '#FFFFFF'));
   }, [darkMode, themePref]);
 
-  // --- Effects: URL searchParams sync ---
+  // --- Effects: Sinkronisasi parameter URL ---
   useEffect(() => {
     const next = new URLSearchParams();
     if (mode !== 'dashboard') next.set('mode', mode);
@@ -341,7 +344,7 @@ const YouTubeAnalyzer: React.FC = () => {
     setSelectMode(false);
   }, []);
 
-  // --- Demo dataset ---
+  // --- Dataset contoh ---
   const loadDemoData = useCallback(
     async (targetMode: AnalysisMode = 'dashboard') => {
       fetchAbortRef.current?.abort();
@@ -354,16 +357,16 @@ const YouTubeAnalyzer: React.FC = () => {
       setFilters(f => ({ ...DEFAULT_FILTERS, sort: f.sort }));
       setMode(targetMode);
       scrollTop();
-      showToast('Data contoh Nusa Tech Lab dimuat — siap dieksplorasi', 'success');
+      showToast('Data contoh Nusa Tech Lab berhasil dimuat', 'success');
     },
     [clearSelection, showToast]
   );
 
-  // --- Data loading ---
+  // --- Pengambilan data ---
   const ensureApiKey = useCallback(() => {
     if (apiKey) return true;
     setSettingsOpen(true);
-    showToast('Masukkan YouTube API Key terlebih dahulu', 'error');
+    showToast('Diperlukan kunci YouTube Data API v3 terlebih dahulu', 'error');
     return false;
   }, [apiKey, showToast]);
 
@@ -421,10 +424,10 @@ const YouTubeAnalyzer: React.FC = () => {
         );
         if (controller.signal.aborted) return;
         setTrendingData(result);
-        showToast(`Trending ${TRENDING_REGIONS.find(r => r.code === region)?.name ?? region} dimuat`, 'success');
+        showToast(`Daftar trending wilayah ${TRENDING_REGIONS.find(r => r.code === region)?.name ?? region} berhasil dimuat`, 'success');
       } catch (err) {
         if (isAbortError(err)) return;
-        showToast(err instanceof Error ? err.message : 'Gagal memuat trending', 'error');
+        showToast(err instanceof Error ? err.message : 'Gagal memuat daftar trending', 'error');
       } finally {
         if (fetchAbortRef.current === controller) setLoading(false);
       }
@@ -458,8 +461,8 @@ const YouTubeAnalyzer: React.FC = () => {
         setData({ ...data, requestedLimit: limit });
         showToast(
           data.source === 'search' && loaded >= SEARCH_RESULT_CAP
-            ? `Pencarian kata kunci dibatasi ${SEARCH_RESULT_CAP} video oleh YouTube API`
-            : `Semua ${formatFullNumber(loaded)} video sudah dimuat`,
+            ? `Pencarian kata kunci dibatasi maksimal ${SEARCH_RESULT_CAP} video oleh YouTube Data API`
+            : `Seluruh ${formatFullNumber(loaded)} video telah dimuat`,
           'info'
         );
         return;
@@ -512,10 +515,10 @@ const YouTubeAnalyzer: React.FC = () => {
       pills.push({ key: 'duration', label: DURATION_LABELS[filters.duration], clear: () => setFilters(f => ({ ...f, duration: 'all' })) });
     }
     if (filters.minViews > 0) {
-      pills.push({ key: 'views', label: `Views ≥ ${formatNumber(filters.minViews)}`, clear: () => setFilters(f => ({ ...f, minViews: 0 })) });
+      pills.push({ key: 'views', label: `Tayangan ≥ ${formatNumber(filters.minViews)}`, clear: () => setFilters(f => ({ ...f, minViews: 0 })) });
     }
     if (filters.minLikes > 0) {
-      pills.push({ key: 'likes', label: `Likes ≥ ${formatNumber(filters.minLikes)}`, clear: () => setFilters(f => ({ ...f, minLikes: 0 })) });
+      pills.push({ key: 'likes', label: `Suka ≥ ${formatNumber(filters.minLikes)}`, clear: () => setFilters(f => ({ ...f, minLikes: 0 })) });
     }
     if (filters.minER > 0) {
       pills.push({ key: 'er', label: `ER ≥ ${filters.minER}%`, clear: () => setFilters(f => ({ ...f, minER: 0 })) });
@@ -528,12 +531,6 @@ const YouTubeAnalyzer: React.FC = () => {
     }
     return pills;
   }, [filters]);
-
-  const exportName = useMemo(() => {
-    if (mode === 'saved') return 'Tersimpan';
-    if (mode === 'trending') return `Trending_${trendingData?.query ?? trendingRegion}`;
-    return data?.channelTitle || 'YouTube';
-  }, [mode, data, trendingData, trendingRegion]);
 
   // --- Aksi video ---
   const handleSaveToggle = useCallback((video: VideoItem) => {
@@ -558,23 +555,9 @@ const YouTubeAnalyzer: React.FC = () => {
     if (!list.length) return;
     try {
       await copyToClipboard(list.map(v => `https://www.youtube.com/watch?v=${v.id}`).join('\n'));
-      showToast(`${formatFullNumber(list.length)} link disalin`, 'success');
+      showToast(`${formatFullNumber(list.length)} tautan disalin ke papan klip`, 'success');
     } catch {
-      showToast('Gagal menyalin link', 'error');
-    }
-  };
-
-  const downloadZip = async (list: VideoItem[], name: string) => {
-    if (!list.length || busy) return;
-    setBusy(true);
-    showToast(`Menyiapkan ${formatFullNumber(list.length)} thumbnail…`, 'loading');
-    try {
-      const { failed } = await generateZip(list, name, p => p > 0 && p < 100 && showToast(`Membuat ZIP… ${p}%`, 'loading'));
-      showToast(failed ? `ZIP diunduh (${failed} thumbnail gagal)` : 'ZIP thumbnail diunduh', failed ? 'info' : 'success');
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Gagal membuat ZIP', 'error');
-    } finally {
-      setBusy(false);
+      showToast('Gagal menyalin tautan', 'error');
     }
   };
 
@@ -586,16 +569,16 @@ const YouTubeAnalyzer: React.FC = () => {
   const handleBatchSave = () => {
     if (mode === 'saved') {
       setSavedVideos(prev => prev.filter(v => !selectedIds.has(v.id)));
-      showToast(`${selectedList.length} video dihapus dari Tersimpan`, 'success');
+      showToast(`${selectedList.length} video dihapus dari koleksi Tersimpan`, 'success');
     } else {
       const fresh = selectedList.filter(v => !savedIds.has(v.id));
       setSavedVideos(prev => [...fresh, ...prev]);
-      showToast(fresh.length ? `${fresh.length} video disimpan` : 'Semua video terpilih sudah tersimpan', 'success');
+      showToast(fresh.length ? `${fresh.length} video disimpan ke koleksi Tersimpan` : 'Seluruh video terpilih telah tersimpan', 'success');
     }
     clearSelection();
   };
 
-  // --- Preview navigation ---
+  // --- Navigasi pratinjau ---
   const previewIndex = previewId ? filteredVideos.findIndex(v => v.id === previewId) : -1;
   const previewVideo =
     previewIndex >= 0 ? filteredVideos[previewIndex] : previewId ? sourceVideos.find(v => v.id === previewId) ?? null : null;
@@ -616,120 +599,128 @@ const YouTubeAnalyzer: React.FC = () => {
       }
     : undefined;
 
+  const isSecondarySort = SECONDARY_SORTS.includes(filters.sort);
+
   const chipBar = (
-    <div className="sticky top-14 z-30 -mx-4 mb-4 border-b border-border/60 bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:-mx-6 sm:px-6">
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {mode === 'trending' && (
+    <div className="mb-4">
+      {/* Bilah tab horizontal selaras tab halaman channel YouTube */}
+      <StudioTabs<ContentTypeFilter>
+        tabs={FORMAT_TABS}
+        value={filters.contentType}
+        onChange={type => setFilters(f => ({ ...f, contentType: type }))}
+        label="Kategori format video"
+        idPrefix="feed-format"
+        className="mb-0"
+      />
+
+      {/* Baris chip urutan & filter lekat selaras chip bar YouTube */}
+      <div className="sticky top-14 z-30 -mx-4 bg-background/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6">
+        <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar">
+          {mode === 'trending' && (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="yt-chip" data-active="true">
+                  <Flame className="h-4 w-4" aria-hidden="true" /> {regionName ?? trendingRegion} <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-80 w-56 overflow-y-auto rounded-xl py-2 shadow-popover">
+                {TRENDING_REGIONS.map(r => (
+                  <DropdownMenuItem
+                    key={r.code}
+                    className="h-9 gap-3 rounded-none px-4"
+                    onSelect={() => {
+                      setTrendingRegion(r.code);
+                      handleTrending(r.code);
+                    }}
+                  >
+                    <span className="w-4">{r.code === (trendingData?.query ?? trendingRegion) && <Check className="h-4 w-4" />}</span>
+                    {r.name}
+                    <span className="ml-auto text-xs text-muted-foreground">{r.code}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {PRIMARY_SORTS.map(sort => (
+            <button
+              key={sort}
+              type="button"
+              className="yt-chip"
+              aria-pressed={filters.sort === sort}
+              data-active={filters.sort === sort}
+              onClick={() => setFilters(f => ({ ...f, sort }))}
+            >
+              {SORT_LABELS[sort]}
+            </button>
+          ))}
+
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="yt-chip" data-active="true">
-                <Flame className="h-4 w-4" aria-hidden="true" /> {regionName ?? trendingRegion} <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              <button
+                type="button"
+                className="yt-chip"
+                data-active={isSecondarySort}
+                aria-label={`Urutan metrik lainnya: ${isSecondarySort ? SORT_LABELS[filters.sort] : 'Belum dipilih'}`}
+              >
+                <span>{isSecondarySort ? SORT_LABELS[filters.sort] : 'Urutan lainnya'}</span>
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-80 w-56 overflow-y-auto rounded-xl py-2 shadow-popover">
-              {TRENDING_REGIONS.map(r => (
-                <DropdownMenuItem
-                  key={r.code}
-                  className="h-9 gap-3 rounded-none px-4"
-                  onSelect={() => {
-                    setTrendingRegion(r.code);
-                    handleTrending(r.code);
-                  }}
-                >
-                  <span className="w-4">{r.code === (trendingData?.query ?? trendingRegion) && <Check className="h-4 w-4" />}</span>
-                  {r.name}
-                  <span className="ml-auto text-xs text-muted-foreground">{r.code}</span>
+            <DropdownMenuContent align="start" className="w-52">
+              {SECONDARY_SORTS.map(sort => (
+                <DropdownMenuItem key={sort} onSelect={() => setFilters(f => ({ ...f, sort }))} className="gap-2.5 py-2">
+                  <span className="w-4">{filters.sort === sort && <Check className="h-4 w-4" />}</span>
+                  <span>{SORT_LABELS[sort]}</span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
 
-        {/* Segmented Format Control */}
-        <div className="inline-flex shrink-0 items-center rounded-lg bg-secondary p-0.5" role="group" aria-label="Jenis konten">
-          {(['all', 'long', 'shorts'] as ContentTypeFilter[]).map(type => {
-            const active = filters.contentType === type;
-            return (
-              <button
-                key={type}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setFilters(f => ({ ...f, contentType: type }))}
-                className={cn(
-                  'min-h-10 rounded-md px-3 text-sm font-medium transition-colors sm:min-h-8',
-                  active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {type === 'all' ? 'Semua' : type === 'long' ? 'Video' : 'Shorts'}
-              </button>
-            );
-          })}
-        </div>
+          <button
+            type="button"
+            className="yt-chip"
+            aria-pressed={filters.outliersOnly}
+            data-active={filters.outliersOnly}
+            onClick={() => setFilters(f => ({ ...f, outliersOnly: !f.outliersOnly }))}
+          >
+            Outlier {filters.outliersOnly && <X className="h-3.5 w-3.5" aria-hidden="true" />}
+          </button>
 
-        {/* Sort Dropdown */}
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <button type="button" className="yt-chip" aria-label={`Urutan: ${SORT_LABELS[filters.sort]}`}>
-              <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-              <span>{SORT_LABELS[filters.sort]}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          <button type="button" className="yt-chip" data-active={activeFilterCount > 0} onClick={() => setFiltersOpen(true)}>
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+            Filter{activeFilterCount > 0 && ` · ${activeFilterCount}`}
+          </button>
+
+          {/* Pengalih tampilan Grid / Tabel */}
+          <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-lg bg-secondary p-0.5" role="group" aria-label="Tampilan daftar video">
+            <button
+              type="button"
+              aria-pressed={viewMode === 'grid'}
+              aria-label="Tampilan grid"
+              title="Tampilan grid"
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-7 sm:w-8',
+                viewMode === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" aria-hidden="true" />
             </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-52">
-            {ALL_SORTS.map(sort => (
-              <DropdownMenuItem key={sort} onSelect={() => setFilters(f => ({ ...f, sort }))} className="gap-2.5 py-2">
-                <span className="w-4">{filters.sort === sort && <Check className="h-4 w-4" />}</span>
-                <span>{SORT_LABELS[sort]}</span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Outlier toggle */}
-        <button
-          type="button"
-          className="yt-chip"
-          aria-pressed={filters.outliersOnly}
-          data-active={filters.outliersOnly}
-          onClick={() => setFilters(f => ({ ...f, outliersOnly: !f.outliersOnly }))}
-        >
-          Outlier {filters.outliersOnly && <X className="h-3.5 w-3.5" aria-hidden="true" />}
-        </button>
-
-        {/* Filter modal trigger */}
-        <button type="button" className="yt-chip" data-active={activeFilterCount > 0} onClick={() => setFiltersOpen(true)}>
-          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-          Filter{activeFilterCount > 0 && ` · ${activeFilterCount}`}
-        </button>
-
-        {/* Grid / Table view switcher */}
-        <div className="ml-auto inline-flex shrink-0 items-center rounded-lg bg-secondary p-0.5" role="group" aria-label="Tampilan daftar video">
-          <button
-            type="button"
-            aria-pressed={viewMode === 'grid'}
-            aria-label="Tampilan grid"
-            title="Tampilan grid"
-            onClick={() => setViewMode('grid')}
-            className={cn(
-              'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-8 sm:w-8',
-              viewMode === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === 'table'}
-            aria-label="Tampilan tabel"
-            title="Tampilan tabel"
-            onClick={() => setViewMode('table')}
-            className={cn(
-              'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-8 sm:w-8',
-              viewMode === 'table' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <Table2 className="h-4 w-4" aria-hidden="true" />
-          </button>
+            <button
+              type="button"
+              aria-pressed={viewMode === 'table'}
+              aria-label="Tampilan tabel"
+              title="Tampilan tabel"
+              onClick={() => setViewMode('table')}
+              className={cn(
+                'inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors sm:h-7 sm:w-8',
+                viewMode === 'table' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Table2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -744,15 +735,7 @@ const YouTubeAnalyzer: React.FC = () => {
         </p>
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:px-0">
           <button type="button" className="yt-pill" onClick={() => copyLinks(filteredVideos)} disabled={!filteredVideos.length}>
-            <Link2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> Salin link
-          </button>
-          <button
-            type="button"
-            className="yt-pill"
-            onClick={() => downloadZip(filteredVideos, exportName)}
-            disabled={!filteredVideos.length || busy}
-          >
-            <ImageDown className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> Thumbnail ZIP
+            <Link2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> Salin tautan
           </button>
           <button
             type="button"
@@ -760,7 +743,7 @@ const YouTubeAnalyzer: React.FC = () => {
             onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
             disabled={!filteredVideos.length}
           >
-            <CheckSquare className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> {selectMode ? 'Batal pilih' : 'Pilih'}
+            <CheckSquare className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> {selectMode ? 'Batalkan pilih' : 'Pilih'}
           </button>
           <button
             type="button"
@@ -781,7 +764,7 @@ const YouTubeAnalyzer: React.FC = () => {
               type="button"
               onClick={p.clear}
               aria-label={`Hapus filter ${p.label}`}
-              className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border bg-secondary/70 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+              className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-secondary px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             >
               <span>{p.label}</span>
               <X className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
@@ -792,7 +775,7 @@ const YouTubeAnalyzer: React.FC = () => {
             onClick={() => setFilters(f => ({ ...DEFAULT_FILTERS, contentType: f.contentType, sort: f.sort }))}
             className="ml-1 text-xs font-medium text-primary hover:underline"
           >
-            Reset semua
+            Atur ulang filter
           </button>
         </div>
       )}
@@ -809,11 +792,11 @@ const YouTubeAnalyzer: React.FC = () => {
       </svg>
 
       <h1 className="mt-6 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-        Analitik channel YouTube berbasis data nyata
+        Analitik channel YouTube berbasis data
       </h1>
       <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
-        Tempel <b className="font-medium text-foreground">@handle</b>, URL channel, playlist, atau kata kunci di kolom
-        pencarian. Dapatkan deteksi outlier, skor judul &amp; thumbnail <span className="whitespace-nowrap">A–F</span>, peta panas jadwal upload, dan ekspor laporan.
+        Masukkan <b className="font-medium text-foreground">@handle</b>, URL channel, playlist, atau kata kunci pada kolom
+        pencarian. Tersedia deteksi outlier, penilaian judul dan thumbnail <span className="whitespace-nowrap">A–F</span>, peta panas jadwal unggah, serta ekspor laporan lengkap.
       </p>
 
       {!apiKey ? (
@@ -823,16 +806,16 @@ const YouTubeAnalyzer: React.FC = () => {
               <KeyRound className="h-5 w-5" aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-foreground">Mulai langsung atau hubungkan API Key</h2>
+              <h2 className="font-medium text-foreground">Konfigurasi awal atau tinjau data contoh</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Jelajahi seluruh fitur dengan data contoh luring, atau masukkan YouTube Data API v3 key gratis (10.000 unit/hari) untuk menganalisis channel mana pun.
+                Gunakan data contoh luring untuk meninjau seluruh modul secara langsung, atau konfigurasikan kunci YouTube Data API v3 gratis (10.000 unit/hari) untuk menganalisis channel publik.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="yt-pill-blue" onClick={() => loadDemoData('dashboard')}>
-                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+                <button type="button" className="yt-pill-primary" onClick={() => loadDemoData('dashboard')}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Muat data contoh
                 </button>
                 <button type="button" className="yt-pill" onClick={() => setSettingsOpen(true)}>
-                  <KeyRound className="h-4 w-4" aria-hidden="true" /> Atur API Key
+                  <KeyRound className="h-4 w-4" aria-hidden="true" /> Atur Kunci API
                 </button>
               </div>
             </div>
@@ -841,8 +824,8 @@ const YouTubeAnalyzer: React.FC = () => {
       ) : (
         <>
           <div className="mt-7 flex flex-wrap justify-center gap-2">
-            <button type="button" className="yt-pill-blue" onClick={() => loadDemoData('dashboard')}>
-              <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+            <button type="button" className="yt-pill-primary" onClick={() => loadDemoData('dashboard')}>
+              <Sparkles className="h-4 w-4" aria-hidden="true" /> Muat data contoh
             </button>
             {EXAMPLE_QUERIES.map(q => (
               <button
@@ -860,7 +843,7 @@ const YouTubeAnalyzer: React.FC = () => {
           </div>
           {searchHistory.length > 0 && (
             <div className="mt-7 w-full max-w-md text-left">
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lanjutkan dari riwayat</h2>
+              <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Riwayat analisis terakhir</h2>
               <ul className="yt-card divide-y divide-border overflow-hidden">
                 {searchHistory.slice(0, 4).map(h => (
                   <li key={h.timestamp}>
@@ -886,7 +869,7 @@ const YouTubeAnalyzer: React.FC = () => {
 
       <div className="mt-10 grid w-full grid-cols-2 gap-3 text-left sm:grid-cols-4">
         {([
-          { icon: BarChart3, title: 'Statistik', text: 'Views, ER, outlier & tag', target: 'insights' as AnalysisMode },
+          { icon: BarChart3, title: 'Statistik', text: 'Tayangan, ER, outlier & tag', target: 'insights' as AnalysisMode },
           {
             icon: Gauge,
             title: 'Skor Konten',
@@ -898,16 +881,16 @@ const YouTubeAnalyzer: React.FC = () => {
             target: 'title_score' as AnalysisMode,
           },
           { icon: CalendarClock, title: 'Jadwal Upload', text: 'Peta panas 7×24 jam', target: 'schedule' as AnalysisMode },
-          { icon: Lightbulb, title: 'Content Gap', text: 'Topik trending terlewat', target: 'content_gap' as AnalysisMode },
+          { icon: Lightbulb, title: 'Content Gap', text: 'Peluang topik trending', target: 'content_gap' as AnalysisMode },
         ]).map(({ icon: Icon, title, text, target }) => (
           <button
             key={title}
             type="button"
             onClick={() => (data ? handleNavigate(target) : loadDemoData(target))}
-            className="group rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-secondary/60"
+            className="group rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-secondary"
           >
             <Icon className="h-5 w-5 text-primary" strokeWidth={1.75} aria-hidden="true" />
-            <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
+            <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{text}</p>
           </button>
         ))}
@@ -918,7 +901,7 @@ const YouTubeAnalyzer: React.FC = () => {
   const renderGridMode = () => {
     if (loading) {
       return (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-10 pt-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-9 pt-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -931,20 +914,20 @@ const YouTubeAnalyzer: React.FC = () => {
       return (
         <EmptyState
           icon={Flame}
-          title="Trending belum dimuat"
-          description={apiKey ? 'Pilih wilayah lalu muat video yang sedang trending saat ini.' : 'Atur API Key untuk memuat video trending, atau jelajahi data contoh lebih dulu.'}
+          title="Daftar trending belum dimuat"
+          description={apiKey ? 'Pilih wilayah tujuan untuk memuat daftar video trending terkini.' : 'Diperlukan kunci API untuk memuat daftar video trending, atau gunakan data contoh untuk meninjau aplikasi.'}
           action={
             <>
               <button
                 type="button"
-                className="yt-pill-blue"
+                className="yt-pill-primary"
                 onClick={() => (apiKey ? handleTrending(trendingRegion, true) : setSettingsOpen(true))}
               >
-                {apiKey ? 'Muat trending' : 'Atur API Key'}
+                {apiKey ? 'Muat trending' : 'Atur Kunci API'}
               </button>
               {!apiKey && (
                 <button type="button" className="yt-pill" onClick={() => loadDemoData('dashboard')}>
-                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Coba data contoh
+                  <Sparkles className="h-4 w-4" aria-hidden="true" /> Muat data contoh
                 </button>
               )}
             </>
@@ -955,11 +938,11 @@ const YouTubeAnalyzer: React.FC = () => {
     if (mode === 'saved' && savedVideos.length === 0) {
       return (
         <>
-          <PageHeader title="Tersimpan" subtitle="0 video • disimpan di browser ini" className="pt-2" />
+          <PageHeader title="Tersimpan" subtitle="0 video • tersimpan pada penyimpanan lokal browser" className="pt-2" />
           <EmptyState
             icon={Bookmark}
-            title="Belum ada video tersimpan"
-            description="Simpan video lewat ikon bookmark di thumbnail, menu ⋮, atau pilih beberapa sekaligus dengan tombol Pilih."
+            title="Belum terdapat video tersimpan"
+            description="Penyimpanan video dapat dilakukan melalui ikon penanda pada thumbnail, menu tindakan, atau seleksi massal menggunakan tombol Pilih."
             action={
               <button type="button" className="yt-pill-primary" onClick={() => handleNavigate('dashboard')}>
                 Kembali ke Beranda
@@ -970,23 +953,25 @@ const YouTubeAnalyzer: React.FC = () => {
       );
     }
 
+    const isChannelFeed = mode === 'dashboard' && data?.source === 'channel';
+
     return (
       <>
         {mode === 'dashboard' && data && <ChannelHeader data={data} />}
         {mode === 'trending' && trendingData && <ChannelHeader data={trendingData} regionName={regionName} />}
         {mode === 'saved' && (
-          <PageHeader title="Tersimpan" subtitle={`${formatFullNumber(savedVideos.length)} video • disimpan di browser ini`} className="pt-2" />
+          <PageHeader title="Tersimpan" subtitle={`${formatFullNumber(savedVideos.length)} video • tersimpan pada penyimpanan lokal browser`} className="pt-2" />
         )}
         {chipBar}
         {resultsToolbar}
         {filteredVideos.length === 0 ? (
           <EmptyState
             icon={SlidersHorizontal}
-            title="Tidak ada video yang cocok"
-            description="Coba ubah jenis konten atau longgarkan filter."
+            title="Tidak ditemukan video yang sesuai"
+            description="Sesuaikan kategori format atau longgarkan kriteria filter yang aktif."
             action={
               <button type="button" className="yt-pill-primary" onClick={() => setFilters(DEFAULT_FILTERS)}>
-                Reset semua filter
+                Atur ulang seluruh filter
               </button>
             }
           />
@@ -1007,6 +992,7 @@ const YouTubeAnalyzer: React.FC = () => {
             videos={filteredVideos}
             contentType={filters.contentType}
             sort={filters.sort}
+            hideAvatar={isChannelFeed}
             onShowAllShorts={() => {
               setFilters(f => ({ ...f, contentType: 'shorts' }));
               scrollTop();
@@ -1111,7 +1097,7 @@ const YouTubeAnalyzer: React.FC = () => {
 
       {loading && (
         <div className="fixed left-0 right-0 top-0 z-[160] h-0.5 overflow-hidden" role="progressbar" aria-label="Memuat data">
-          <div className="h-full w-1/3 animate-loading-bar bg-primary" />
+          <div className="h-full w-1/3 animate-loading-bar bg-youtube-red" />
         </div>
       )}
 
@@ -1180,15 +1166,14 @@ const YouTubeAnalyzer: React.FC = () => {
                   icon: mode === 'saved' ? BookmarkMinus : Bookmark,
                   onClick: handleBatchSave,
                 },
-                { label: 'Salin link', ariaLabel: 'Salin link video terpilih', icon: Link2, onClick: () => copyLinks(selectedList) },
-                { label: 'ZIP', ariaLabel: 'Unduh ZIP thumbnail terpilih', icon: ImageDown, onClick: () => downloadZip(selectedList, `${exportName}_terpilih`) },
+                { label: 'Salin tautan', ariaLabel: 'Salin tautan video terpilih', icon: Link2, onClick: () => copyLinks(selectedList) },
                 { label: 'Ekspor', ariaLabel: 'Ekspor video terpilih', icon: FileDown, onClick: () => openExport('selected') },
               ].map(({ label, ariaLabel, icon: Icon, onClick }) => (
                 <button
                   key={label}
                   type="button"
                   onClick={onClick}
-                  disabled={!selectedList.length || busy}
+                  disabled={!selectedList.length}
                   aria-label={ariaLabel}
                   className="flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-medium hover:bg-inverse-foreground/10 disabled:opacity-40"
                 >
@@ -1213,7 +1198,7 @@ const YouTubeAnalyzer: React.FC = () => {
             position={previewIndex >= 0 ? { index: previewIndex, total: filteredVideos.length } : undefined}
             onSaveToggle={handleSaveToggle}
             onAnalyzeChannel={handleAnalyzeChannel}
-            isSaved={savedIds.has(previewVideo.id)}
+            isSaved={previewVideo ? savedIds.has(previewVideo.id) : false}
             onToast={showToast}
           />
         )}

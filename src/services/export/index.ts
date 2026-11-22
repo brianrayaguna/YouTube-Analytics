@@ -1,4 +1,4 @@
-// Orkestrator ekspor: satu pintu untuk semua format.
+// Orkestrator ekspor: satu pintu untuk semua format laporan dan arsip thumbnail.
 
 import { VideoItem } from '../../types';
 import { buildReport, ExportContext, Report, APP_NAME, formatDateId } from './reportModel';
@@ -7,6 +7,7 @@ import { downloadBlob } from '../exportService';
 import { safeFileName } from '../../lib/format';
 
 export type ExportFormat = 'xlsx' | 'pdf' | 'json' | 'csv' | 'html' | 'zip';
+export type ZipExportKind = 'bundle' | 'thumbnails';
 
 export interface ExportOptions {
   format: ExportFormat;
@@ -14,24 +15,26 @@ export interface ExportOptions {
   context: ExportContext;
   fileName: string;
   includeThumbnails: boolean;
-  /** Ukuran thumbnail di folder paket ZIP */
+  /** Jenis isi arsip ZIP: paket laporan lengkap atau koleksi thumbnail saja */
+  zipKind?: ZipExportKind;
+  /** Ukuran thumbnail di dalam arsip ZIP */
   zipThumbnailSize?: 'maxres' | 'hq';
-  /** Isi file CSV: tabel video (default) atau tabel jadwal upload */
+  /** Isi berkas CSV: tabel video (default) atau tabel jadwal upload */
   csvKind?: 'videos' | 'schedule';
   onProgress?: (label: string, percent: number) => void;
   signal?: AbortSignal;
 }
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; ext: string; description: string; supportsThumbnails: boolean }> = {
-  xlsx: { label: 'Excel', ext: 'xlsx', description: 'Ringkasan, jadwal upload, tabel video dengan thumbnail, tag & metodologi', supportsThumbnails: true },
-  pdf: { label: 'PDF', ext: 'pdf', description: 'Laporan siap cetak: KPI, jadwal upload, 10 teratas, daftar lengkap', supportsThumbnails: true },
-  html: { label: 'HTML', ext: 'html', description: 'Laporan satu file dengan peta panas jadwal upload, Unicode penuh', supportsThumbnails: true },
-  json: { label: 'JSON', ext: 'json', description: 'Data terstruktur + skor rinci + jadwal upload untuk developer', supportsThumbnails: true },
-  csv: { label: 'CSV', ext: 'csv', description: 'Tabel universal (dengan hari & jam upload) untuk Sheets/BI', supportsThumbnails: false },
-  zip: { label: 'Paket lengkap', ext: 'zip', description: 'Semua format + CSV jadwal upload + folder thumbnail HD', supportsThumbnails: true },
+  xlsx: { label: 'Excel', ext: 'xlsx', description: 'Ringkasan, jadwal unggah, tabel video beserta thumbnail, tag, dan metodologi', supportsThumbnails: true },
+  pdf: { label: 'PDF', ext: 'pdf', description: 'Laporan siap cetak: KPI, jadwal unggah, 10 teratas, dan daftar lengkap', supportsThumbnails: true },
+  html: { label: 'HTML', ext: 'html', description: 'Laporan satu berkas dengan peta panas jadwal unggah dan dukungan Unicode penuh', supportsThumbnails: true },
+  json: { label: 'JSON', ext: 'json', description: 'Data terstruktur beserta skor rinci dan jadwal unggah untuk integrasi teknis', supportsThumbnails: true },
+  csv: { label: 'CSV', ext: 'csv', description: 'Tabel universal (termasuk hari dan jam unggah) untuk spreadsheet atau BI', supportsThumbnails: false },
+  zip: { label: 'Arsip ZIP', ext: 'zip', description: 'Paket laporan lengkap semua format atau khusus koleksi thumbnail HD', supportsThumbnails: true },
 };
 
-/** Batas thumbnail tersemat agar file tetap ringan. */
+/** Batas thumbnail tersemat agar ukuran berkas tetap efisien. */
 export const MAX_EMBEDDED_THUMBNAILS = 1000;
 
 const loadAvatar = async (report: Report): Promise<ThumbImage | undefined> => {
@@ -51,10 +54,60 @@ const throwIfAborted = (signal?: AbortSignal) => {
 
 export const runExport = async (opts: ExportOptions): Promise<{ fileName: string; size: number; thumbnailsEmbedded: number }> => {
   const { format, videos, context, includeThumbnails, onProgress, signal } = opts;
-  if (!videos.length) throw new Error('Tidak ada video untuk diekspor');
+  if (!videos.length) throw new Error('Tidak terdapat video untuk diekspor.');
   const progress = (label: string, pct: number) => onProgress?.(label, Math.max(0, Math.min(100, Math.round(pct))));
 
-  progress('Menghitung skor & ringkasan…', 3);
+  const zipKind: ZipExportKind = opts.zipKind ?? 'bundle';
+  const isThumbnailsOnlyZip = format === 'zip' && zipKind === 'thumbnails';
+
+  const baseName = safeFileName(opts.fileName || `${context.title}_${context.generatedAt.toISOString().slice(0, 10)}`);
+  const base =
+    format === 'csv' && opts.csvKind === 'schedule'
+      ? `${baseName} - jadwal upload`
+      : isThumbnailsOnlyZip
+        ? `${baseName}_thumbnail`
+        : baseName;
+
+  // Mode khusus: arsip ZIP berisi koleksi thumbnail resolusi tinggi saja
+  if (isThumbnailsOnlyZip) {
+    progress('Menyiapkan arsip thumbnail…', 4);
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    const folder = zip.folder(safeFileName(baseName))!;
+    let done = 0;
+    let succeeded = 0;
+    let cursor = 0;
+    const sizeOpt = opts.zipThumbnailSize ?? 'maxres';
+
+    const worker = async () => {
+      while (cursor < videos.length) {
+        throwIfAborted(signal);
+        const idx = cursor++;
+        const v = videos[idx];
+        const img = await fetchFullThumbnail(v.id, v.thumbnail, sizeOpt, signal);
+        if (img) {
+          folder.file(`${String(idx + 1).padStart(4, '0')} - ${safeFileName(v.title, 80)} [${v.id}].jpg`, img);
+          succeeded++;
+        }
+        done++;
+        progress(`Mengunduh thumbnail ${done}/${videos.length}…`, 5 + (done / videos.length) * 85);
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(6, videos.length) }, worker));
+    throwIfAborted(signal);
+    if (succeeded === 0) throw new Error('Tidak ada thumbnail yang berhasil diunduh.');
+
+    progress('Mengompres arsip ZIP…', 94);
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    throwIfAborted(signal);
+    const fileName = `${base}.zip`;
+    downloadBlob(blob, fileName);
+    progress('Selesai', 100);
+    return { fileName, size: blob.size, thumbnailsEmbedded: succeeded };
+  }
+
+  progress('Menghitung skor dan ringkasan…', 3);
   const report = buildReport(videos, context);
   throwIfAborted(signal);
 
@@ -71,8 +124,6 @@ export const runExport = async (opts: ExportOptions): Promise<{ fileName: string
   throwIfAborted(signal);
   const avatar = format === 'csv' || format === 'json' ? undefined : await loadAvatar(report);
 
-  const baseName = safeFileName(opts.fileName || `${context.title}_${context.generatedAt.toISOString().slice(0, 10)}`);
-  const base = format === 'csv' && opts.csvKind === 'schedule' ? `${baseName} - jadwal upload` : baseName;
   let blob: Blob;
 
   const build = async (f: Exclude<ExportFormat, 'zip'>): Promise<Blob> => {
@@ -93,7 +144,7 @@ export const runExport = async (opts: ExportOptions): Promise<{ fileName: string
   };
 
   if (format !== 'zip') {
-    progress(`Menyusun ${FORMAT_INFO[format].label}…`, 85);
+    progress(`Menyusun berkas ${FORMAT_INFO[format].label}…`, 85);
     blob = await build(format);
   } else {
     const { default: JSZip } = await import('jszip');
@@ -102,7 +153,7 @@ export const runExport = async (opts: ExportOptions): Promise<{ fileName: string
     for (let i = 0; i < steps.length; i++) {
       throwIfAborted(signal);
       progress(`Menyusun ${FORMAT_INFO[steps[i]].label}…`, 42 + i * 6);
-      // JSON di paket tidak menyematkan base64 (gambar sudah ada di folder thumbnails/)
+      // JSON di paket tidak menyematkan base64 karena gambar tersedia di folder thumbnails/
       const b = steps[i] === 'json' ? (await import('./dataFormats')).buildJson(report, null) : await build(steps[i]);
       zip.file(`${base}.${FORMAT_INFO[steps[i]].ext}`, b);
     }
@@ -118,7 +169,7 @@ export const runExport = async (opts: ExportOptions): Promise<{ fileName: string
           const img = await fetchFullThumbnail(r.id, r.scored.thumbnail, opts.zipThumbnailSize ?? 'maxres', signal);
           if (img) folder.file(`${String(r.no).padStart(4, '0')} - ${safeFileName(r.title, 80)} [${r.id}].jpg`, img);
           done++;
-          progress(`Thumbnail HD ${done}/${report.rows.length}…`, 72 + (done / report.rows.length) * 20);
+          progress(`Mengunduh thumbnail HD ${done}/${report.rows.length}…`, 72 + (done / report.rows.length) * 20);
         }
       };
       await Promise.all(Array.from({ length: Math.min(6, report.rows.length) }, worker));
@@ -129,16 +180,16 @@ export const runExport = async (opts: ExportOptions): Promise<{ fileName: string
         `${APP_NAME} — ${context.title}`,
         `Dibuat: ${formatDateId(context.generatedAt, true)} • ${report.summary.totalVideos} video`,
         '',
-        `${base}.xlsx  → laporan Excel (ringkasan, jadwal upload, video + thumbnail, tag, metodologi)`,
+        `${base}.xlsx  → laporan Excel (ringkasan, jadwal unggah, video + thumbnail, tag, metodologi)`,
         `${base}.pdf   → laporan siap cetak`,
-        `${base}.html  → laporan interaktif (buka di browser)`,
+        `${base}.html  → laporan interaktif (dapat dibuka di browser)`,
         `${base}.json  → data terstruktur lengkap dengan skor rinci`,
-        `${base}.csv   → tabel universal (termasuk hari, jam & bagian hari upload)`,
-        `${base} - jadwal upload.csv → performa jadwal upload per hari, bagian hari, blok 3 jam, jam, dan hari × jam`,
-        includeThumbnails ? 'thumbnails/    → thumbnail resolusi tinggi, diberi nomor sesuai kolom "No"' : '',
+        `${base}.csv   → tabel universal (termasuk hari, jam, dan bagian hari unggah)`,
+        `${base} - jadwal upload.csv → performa jadwal unggah per hari, bagian hari, blok 3 jam, jam, dan hari × jam`,
+        includeThumbnails ? 'thumbnails/    → thumbnail resolusi tinggi bernomor urut sesuai kolom "No"' : '',
       ].join('\r\n')
     );
-    progress('Mengompres paket ZIP…', 94);
+    progress('Mengompres arsip ZIP…', 94);
     blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   }
 

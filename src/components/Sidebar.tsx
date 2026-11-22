@@ -24,31 +24,31 @@ const NavRow: React.FC<{
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      title={locked ? `${item.label} — analisis channel terlebih dahulu` : item.label}
+      title={locked ? `${item.label} — memerlukan hasil analisis channel` : item.label}
       className={cn(
-        'flex min-h-11 w-full items-center gap-3.5 rounded-lg px-3 text-left text-sm transition-colors md:min-h-10',
+        'flex min-h-11 w-full items-center gap-5 rounded-[10px] px-3 text-left text-sm transition-colors md:min-h-10',
         active
           ? 'bg-secondary font-medium text-foreground hover:bg-accent'
-          : 'text-foreground hover:bg-secondary/80',
-        locked && !active && 'opacity-60 hover:opacity-90'
+          : 'text-foreground hover:bg-secondary',
+        locked && !active && 'opacity-55 hover:opacity-90'
       )}
     >
-      <Icon className="h-5 w-5 shrink-0" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
+      <Icon className="h-[22px] w-[22px] shrink-0" strokeWidth={active ? 2.2 : 1.65} aria-hidden="true" />
       <span className="flex-1 truncate">{item.label}</span>
       {badge}
-      {locked && <span className="sr-only">Membutuhkan analisis channel terlebih dahulu</span>}
+      {locked && <span className="sr-only">Memerlukan data analisis channel terlebih dahulu</span>}
     </button>
   );
 };
 
-/** Daftar navigasi lengkap — dipakai sidebar desktop & drawer mobile. */
+/** Daftar navigasi lengkap bergaya Guide YouTube — dipakai sidebar desktop & drawer mobile. */
 export const NavList: React.FC<NavListProps> = ({ currentMode, onNavigate, savedCount = 0, hasData }) => (
   <div className="flex flex-col pb-4">
     <nav className="flex flex-col" aria-label="Navigasi utama">
       {NAV_SECTIONS.map((section, idx) => (
-        <div key={section.title ?? idx} className={cn('px-3 py-2.5', idx > 0 && 'border-t border-sidebar-border')}>
+        <div key={section.title ?? idx} className={cn('px-3 py-3', idx > 0 && 'border-t border-border')}>
           {section.title && (
-            <p className="px-3 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="px-3 pb-1.5 pt-0.5 text-[15px] font-medium text-foreground">
               {section.title}
             </p>
           )}
@@ -64,7 +64,7 @@ export const NavList: React.FC<NavListProps> = ({ currentMode, onNavigate, saved
                   onClick={() => onNavigate(item.mode)}
                   badge={
                     item.mode === 'saved' && savedCount > 0 ? (
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium tabular-nums text-foreground">
+                      <span className="text-xs font-medium tabular-nums text-muted-foreground">
                         {savedCount}
                       </span>
                     ) : locked ? (
@@ -78,9 +78,9 @@ export const NavList: React.FC<NavListProps> = ({ currentMode, onNavigate, saved
         </div>
       ))}
     </nav>
-    <div className="border-t border-sidebar-border px-6 pt-4 text-xs leading-5 text-muted-foreground">
-      <p>Data dari YouTube Data API v3.</p>
-      <p>Kuota direset setiap tengah malam (waktu Pasifik).</p>
+    <div className="border-t border-border px-6 pt-4 text-xs leading-5 text-muted-foreground">
+      <p>Sumber data: YouTube Data API v3.</p>
+      <p>Kuota harian direset setiap tengah malam waktu Pasifik.</p>
       <p className="mt-3 text-[11px]">© {new Date().getFullYear()} YT Analyzer Pro</p>
     </div>
   </div>
@@ -95,7 +95,7 @@ const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, sa
     return (
       <aside
         id="desktop-sidebar"
-        className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block"
+        className="fixed bottom-0 left-0 top-14 z-40 hidden w-60 overflow-y-auto bg-sidebar md:block"
       >
         <NavList currentMode={currentMode} onNavigate={onNavigate} savedCount={savedCount} hasData={hasData} />
       </aside>
@@ -105,11 +105,11 @@ const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, sa
   return (
     <aside
       id="desktop-sidebar"
-      className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto border-r border-sidebar-border bg-sidebar px-1 pb-4 pt-1 no-scrollbar md:block"
+      className="fixed bottom-0 left-0 top-14 z-40 hidden w-[72px] overflow-y-auto bg-sidebar px-1 pb-4 pt-1 no-scrollbar md:block"
     >
       <nav aria-label="Navigasi utama">
         {NAV_SECTIONS.map((section, idx) => (
-          <div key={section.title ?? idx} className={cn(idx > 0 && 'mt-1 border-t border-sidebar-border pt-1')}>
+          <div key={section.title ?? idx} className={cn(idx > 0 && 'mt-1 border-t border-border pt-1')}>
             {section.items.map(item => {
               const Icon = item.icon;
               const active = currentMode === item.mode;
@@ -120,25 +120,25 @@ const Sidebar: React.FC<SidebarProps> = ({ expanded, currentMode, onNavigate, sa
                   type="button"
                   onClick={() => onNavigate(item.mode)}
                   aria-current={active ? 'page' : undefined}
-                  aria-label={locked ? `${item.label} (membutuhkan analisis channel)` : item.label}
-                  title={locked ? `${item.label} (analisis channel terlebih dahulu)` : item.label}
+                  aria-label={locked ? `${item.label} (memerlukan hasil analisis channel)` : item.label}
+                  title={locked ? `${item.label} (memerlukan hasil analisis channel)` : item.label}
                   className={cn(
-                    'flex w-full flex-col items-center gap-1.5 rounded-lg px-0 pb-3 pt-3 text-foreground transition-colors',
-                    active ? 'bg-secondary hover:bg-accent' : 'hover:bg-secondary/80',
+                    'flex w-full flex-col items-center gap-1.5 rounded-[10px] px-1 py-3.5 text-foreground transition-colors',
+                    active ? 'bg-secondary hover:bg-accent' : 'hover:bg-secondary',
                     locked && !active && 'opacity-55 hover:opacity-90'
                   )}
                 >
                   <span className="relative">
-                    <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
+                    <Icon className="h-[22px] w-[22px]" strokeWidth={active ? 2.2 : 1.65} aria-hidden="true" />
                     {item.mode === 'saved' && savedCount > 0 ? (
-                      <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] font-semibold leading-4 tabular-nums text-destructive-foreground">
+                      <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] font-medium leading-4 tabular-nums text-destructive-foreground">
                         {savedCount > 99 ? '99+' : savedCount}
                       </span>
                     ) : locked ? (
                       <Lock className="absolute -right-2 -top-1 h-2.5 w-2.5 text-muted-foreground" aria-hidden="true" />
                     ) : null}
                   </span>
-                  <span className={cn('max-w-full truncate px-1 text-[10px] leading-none', active && 'font-medium')}>
+                  <span className={cn('max-w-full truncate text-[10px] leading-none', active && 'font-medium')}>
                     {item.shortLabel}
                   </span>
                 </button>

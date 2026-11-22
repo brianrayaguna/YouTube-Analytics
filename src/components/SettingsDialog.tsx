@@ -29,12 +29,12 @@ interface SettingsDialogProps {
 }
 
 const SHORTCUTS: Array<[string, string]> = [
-  ['/', 'Fokus ke pencarian'],
-  ['Ctrl K', 'Fokus ke pencarian'],
-  ['D', 'Ganti tema terang/gelap'],
-  ['Esc', 'Tutup dialog / menu'],
-  ['← →', 'Video sebelumnya / berikutnya'],
-  ['S', 'Simpan video di pratinjau'],
+  ['/', 'Fokus pada kolom pencarian'],
+  ['Ctrl K', 'Fokus pada kolom pencarian'],
+  ['D', 'Ubah tema terang/gelap'],
+  ['Esc', 'Tutup dialog atau panel'],
+  ['← →', 'Navigasi video pada pratinjau'],
+  ['S', 'Simpan video pada pratinjau'],
 ];
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
@@ -72,7 +72,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const handleSave = async () => {
     const key = draft.trim();
     if (!key) {
-      setError('API Key tidak boleh kosong.');
+      setError('Kunci API tidak boleh kosong.');
       return;
     }
     setChecking(true);
@@ -80,10 +80,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     try {
       await validateApiKey(key);
       onSave(key);
-      onToast('API Key valid dan tersimpan', 'success');
+      onToast('Kunci API terverifikasi dan tersimpan', 'success');
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'API Key tidak valid.');
+      setError(e instanceof Error ? e.message : 'Kunci API tidak valid.');
     } finally {
       setChecking(false);
     }
@@ -97,15 +97,15 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto rounded-xl border border-border bg-popover p-0 sm:max-w-[500px] sm:rounded-xl">
           <DialogHeader className="px-6 pb-2 pt-6 text-left">
-            <DialogTitle className="text-xl font-semibold">Pengaturan</DialogTitle>
-            <DialogDescription>Kelola API key, tema tampilan, kuota harian, dan cache lokal.</DialogDescription>
+            <DialogTitle className="text-xl font-medium">Pengaturan</DialogTitle>
+            <DialogDescription>Konfigurasi kunci API, tema antarmuka, kuota harian, dan penyimpanan cache lokal.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 px-6 py-4">
-            {/* API Key */}
+            {/* Kunci API */}
             <div>
               <label htmlFor="api-key" className="text-sm font-medium text-foreground">
-                YouTube Data API v3 Key
+                Kunci YouTube Data API v3
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <input
@@ -128,7 +128,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   type="button"
                   onClick={() => setShow(s => !s)}
                   className="yt-icon-btn"
-                  aria-label={show ? 'Sembunyikan API Key' : 'Tampilkan API Key'}
+                  aria-label={show ? 'Sembunyikan kunci API' : 'Tampilkan kunci API'}
                 >
                   {show ? <EyeOff className="h-5 w-5" strokeWidth={1.75} /> : <Eye className="h-5 w-5" strokeWidth={1.75} />}
                 </button>
@@ -141,13 +141,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
               <details className="group mt-3 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
                 <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-foreground">
-                  <span>Cara mendapatkan API key gratis (3 langkah)</span>
+                  <span>Panduan memperoleh kunci API gratis (3 langkah)</span>
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
                 </summary>
                 <ol className="mt-2 list-decimal space-y-1 pl-4 leading-5">
-                  <li>Buka Google Cloud Console dan buat proyek baru (gratis tanpa kartu kredit).</li>
+                  <li>Buat proyek baru pada Google Cloud Console (tanpa biaya berlangganan).</li>
                   <li>
-                    Aktifkan{' '}
+                    Aktifkan layanan{' '}
                     <a
                       href="https://console.cloud.google.com/apis/library/youtube.googleapis.com"
                       target="_blank"
@@ -158,20 +158,20 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </a>
                     .
                   </li>
-                  <li>Buka menu Credentials → Create Credentials → API Key, lalu tempel di kolom di atas.</li>
+                  <li>Buka menu Credentials → Create Credentials → API Key, lalu masukkan nilai kunci pada kolom di atas.</li>
                 </ol>
               </details>
 
               <p id="api-key-help" className="mt-2 text-xs leading-5 text-muted-foreground">
-                Key disimpan hanya di browser ini (localStorage). Kuota gratis: 10.000 unit/hari — analisis channel/playlist
-                ±2 unit per 50 video, pencarian kata kunci 100 unit per 50 video.
+                Kunci hanya disimpan pada penyimpanan lokal browser (localStorage). Kuota gratis sebesar 10.000 unit/hari:
+                analisis channel atau playlist memerlukan ±2 unit per 50 video, sedangkan pencarian kata kunci memerlukan 100 unit per 50 video.
               </p>
             </div>
 
             {/* Tampilan */}
             <div>
-              <h3 className="text-sm font-medium text-foreground">Tema tampilan</h3>
-              <div className="mt-2 grid grid-cols-3 gap-2" role="group" aria-label="Pilih tema tampilan">
+              <h3 className="text-sm font-medium text-foreground">Tema antarmuka</h3>
+              <div className="mt-2 grid grid-cols-3 gap-2" role="group" aria-label="Pilih tema antarmuka">
                 {THEME_OPTIONS.map(opt => {
                   const Icon = opt.icon;
                   const active = themePref === opt.value;
@@ -199,7 +199,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             {/* Kuota & Data lokal */}
             <div className="space-y-3">
               <div className="flex items-baseline justify-between">
-                <h3 className="text-sm font-medium text-foreground">Kuota & data lokal</h3>
+                <h3 className="text-sm font-medium text-foreground">Kuota &amp; data lokal</h3>
                 <span className="text-xs font-medium tabular-nums text-muted-foreground">
                   {formatNumber(quotaUsed)} / {formatNumber(QUOTA_LIMIT)} unit
                 </span>
@@ -222,7 +222,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   type="button"
                   onClick={() => {
                     const n = clearAnalysisCache();
-                    onToast(n ? `${n} cache analisis dihapus` : 'Cache sudah kosong', 'success');
+                    onToast(n ? `${n} entri cache analisis dihapus` : 'Cache analisis dalam keadaan kosong', 'success');
                   }}
                   className="yt-pill"
                 >
@@ -234,7 +234,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     onClick={() => setConfirmRemove(true)}
                     className="yt-pill text-destructive hover:bg-destructive/10"
                   >
-                    <Trash2 className="h-4 w-4" strokeWidth={1.75} /> Hapus API Key
+                    <Trash2 className="h-4 w-4" strokeWidth={1.75} /> Hapus Kunci API
                   </button>
                 )}
               </div>
@@ -242,7 +242,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
             {/* Pintasan */}
             <div>
-              <h3 className="text-sm font-medium text-foreground">Pintasan keyboard</h3>
+              <h3 className="text-sm font-medium text-foreground">Pintasan papan ketik</h3>
               <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                 {SHORTCUTS.map(([key, label]) => (
                   <div key={key + label} className="flex items-center gap-3">
@@ -281,9 +281,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Hapus API Key dari browser ini?</AlertDialogTitle>
+            <AlertDialogTitle>Hapus kunci API dari browser ini?</AlertDialogTitle>
             <AlertDialogDescription>
-              API Key akan dihapus dari penyimpanan lokal browser. Anda tetap bisa memakai data contoh atau memasukkan key kembali kapan saja.
+              Kunci API akan dihapus dari penyimpanan lokal browser. Mode data contoh tetap dapat digunakan, dan kunci API dapat dimasukkan kembali sewaktu-waktu.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -293,11 +293,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 onRemoveKey();
                 setDraft('');
                 setConfirmRemove(false);
-                onToast('API Key dihapus dari browser', 'info');
+                onToast('Kunci API dihapus dari browser', 'info');
                 onOpenChange(false);
               }}
             >
-              Hapus Key
+              Hapus Kunci
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

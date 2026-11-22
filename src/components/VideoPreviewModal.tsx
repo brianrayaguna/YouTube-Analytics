@@ -77,9 +77,9 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
   const copyLink = async () => {
     try {
       await copyToClipboard(url);
-      onToast('Link disalin ke papan klip', 'success');
+      onToast('Tautan disalin ke papan klip', 'success');
     } catch {
-      onToast('Gagal menyalin link', 'error');
+      onToast('Gagal menyalin tautan', 'error');
     }
   };
 
@@ -87,10 +87,10 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
     onToast('Mengunduh thumbnail…', 'loading');
     try {
       await downloadThumbnail(video);
-      onToast('Thumbnail diunduh', 'success');
+      onToast('Thumbnail berhasil diunduh', 'success');
     } catch {
       window.open(video.thumbnail, '_blank', 'noopener,noreferrer');
-      onToast('Unduhan langsung diblokir — thumbnail dibuka di tab baru', 'info');
+      onToast('Unduhan langsung diblokir browser — thumbnail dibuka pada tab baru', 'info');
     }
   };
 
@@ -185,7 +185,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
                     {isSaved ? 'Tersimpan' : 'Simpan'}
                   </button>
                   <button type="button" onClick={copyLink} className="yt-pill">
-                    <Share2 className="h-4 w-4" strokeWidth={1.75} /> Salin link
+                    <Share2 className="h-4 w-4" strokeWidth={1.75} /> Salin tautan
                   </button>
                   <button type="button" onClick={downloadThumb} className="yt-pill">
                     <ImageDown className="h-4 w-4" strokeWidth={1.75} /> Thumbnail
@@ -206,7 +206,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
               {/* Kotak deskripsi & metrik */}
               <div className="mt-4 rounded-xl bg-secondary p-3.5 text-sm">
                 <p className="font-medium tabular-nums text-foreground">
-                  {formatFullNumber(video.viewCountRaw)} x ditonton
+                  {formatFullNumber(video.viewCountRaw)} tayangan
                   <span className="ml-2 font-normal text-muted-foreground" title={formatDateTimeLong(video.publishedAt)}>
                     {formatDateWithDay(video.publishedAt)} • {formatTime(video.publishedAt)}
                   </span>
@@ -250,7 +250,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({
                     onClick={() => setExpanded(x => !x)}
                     className="mt-2.5 inline-flex min-h-9 items-center font-medium text-primary hover:underline"
                   >
-                    {expanded ? 'Tampilkan lebih sedikit' : 'Lihat deskripsi & tag lengkap'}
+                    {expanded ? 'Tampilkan lebih ringkas' : 'Tampilkan deskripsi dan tag lengkap'}
                   </button>
                 )}
               </div>

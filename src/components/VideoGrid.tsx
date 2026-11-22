@@ -5,12 +5,13 @@ import { VideoItem, ShowToast, ContentTypeFilter, SortOption } from '../types';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 48;
-const SHELF_AFTER = 8;
+const SHELF_AFTER = 6;
 
 interface VideoGridProps {
   videos: VideoItem[];
   contentType: ContentTypeFilter;
   sort?: SortOption;
+  hideAvatar?: boolean;
   onShowAllShorts: () => void;
   onToast: ShowToast;
   savedIds: Set<string>;
@@ -21,17 +22,18 @@ interface VideoGridProps {
   onSelect: (id: string) => void;
 }
 
-const LONG_GRID = 'grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 sm:gap-y-10 lg:grid-cols-3 2xl:grid-cols-4 min-[2200px]:grid-cols-5';
-const SHORTS_GRID = 'grid grid-cols-2 gap-x-2.5 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6';
+const LONG_GRID = 'grid grid-cols-1 gap-x-4 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 min-[2200px]:grid-cols-5';
+const SHORTS_GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6';
 
-// Sembunyikan item rak Shorts yang tidak muat dalam satu baris
+// Sembunyikan item rak Shorts yang melebihi satu baris penuh
 const SHELF_VISIBILITY = ['', '', 'hidden sm:block', 'hidden md:block', 'hidden lg:block', 'hidden 2xl:block'];
 
-/** Grid video responsif dengan pemuatan bertahap; rak Shorts hanya tampil saat urut kronologis terbaru. */
+/** Grid video responsif selaras YouTube web (3 kolom desktop, rak Shorts 5 kolom). */
 const VideoGrid: React.FC<VideoGridProps> = ({
   videos,
   contentType,
   sort = 'popular',
+  hideAvatar = false,
   onShowAllShorts,
   onToast,
   savedIds,
@@ -48,7 +50,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
   const longs = contentType === 'all' ? videos.filter(v => !v.isShort) : videos;
   const shorts = contentType === 'all' ? videos.filter(v => v.isShort) : [];
-  // Jangan memecah urutan peringkat ketika pengguna menyortir berdasarkan metrik (populer, ER, likes, komentar)
+  // Rak Shorts hanya disisipkan pada urutan kronologis terbaru agar peringkat metrik tidak terpecah
   const useShelf = contentType === 'all' && sort === 'newest' && shorts.length > 0 && longs.length > 0;
   const mainList = useShelf ? longs : videos;
   const hasMore = visible < mainList.length;
@@ -79,6 +81,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
         isSelected={selectedIds.has(v.id)}
         onSelect={onSelect}
         shortsLayout={shortsLayout}
+        hideAvatar={hideAvatar}
       />
     </div>
   );
@@ -96,7 +99,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
       {useShelf && (
         <section className={cn(firstChunk.length > 0 && 'mt-10')}>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
+          <h2 className="mb-4 flex items-center gap-2 text-xl font-bold text-foreground">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
               <Clapperboard className="h-4 w-4" aria-hidden="true" />
             </span>
@@ -113,7 +116,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
               onClick={onShowAllShorts}
               className="relative inline-flex min-h-11 items-center gap-2 rounded-full border border-border bg-background px-8 text-sm font-medium transition-colors hover:bg-secondary sm:min-h-9"
             >
-              Tampilkan semua Shorts <ChevronDown className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              Tampilkan seluruh Shorts <ChevronDown className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         </section>
@@ -123,7 +126,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({
 
       {hasMore && (
         <div ref={sentinelRef} className="flex justify-center py-8">
-          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-secondary border-t-primary" role="status" aria-label="Memuat video lainnya" />
+          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-secondary border-t-primary" role="status" aria-label="Memuat video berikutnya" />
         </div>
       )}
     </>

@@ -191,7 +191,7 @@ const JobRow: React.FC<{ job: LocalJob; onChanged: () => void; onToast: ShowToas
           {job.status === 'done' && codecLabel(job) && (
             <span
               className="rounded bg-success/15 px-1.5 py-0.5 text-[11px] font-medium text-success"
-              title={job.conversion ? 'Dikonversi otomatis agar bisa diputar di semua pemutar' : 'Codec yang kompatibel dengan semua pemutar'}
+              title={job.conversion ? 'Dikonversi otomatis agar dapat diputar pada semua pemutar' : 'Codec yang kompatibel dengan semua pemutar'}
             >
               {codecLabel(job)}
               {job.conversion ? ' • dikonversi' : ''}
@@ -325,7 +325,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               </p>
             ) : (
               <p className="mt-0.5 text-sm text-muted-foreground">
-                Video diunduh langsung oleh yt-dlp di komputer Anda — tanpa situs pihak ketiga. Ikuti langkah di bawah sekali saja, lalu klik Cek ulang.
+                Pengunduhan dilakukan langsung melalui yt-dlp pada perangkat lokal tanpa situs pihak ketiga. Lakukan pemasangan satu kali di bawah, lalu pilih Periksa ulang.
               </p>
             )}
           </div>
@@ -337,7 +337,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
             </button>
           )}
           <button type="button" className="yt-pill" onClick={() => refresh(true)} disabled={checking}>
-            <RefreshCw className={cn('h-4 w-4', checking && 'animate-spin')} aria-hidden="true" /> Cek ulang
+            <RefreshCw className={cn('h-4 w-4', checking && 'animate-spin')} aria-hidden="true" /> Periksa ulang
           </button>
         </div>
       </div>
@@ -346,9 +346,8 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
         <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center">
           <CircleAlert className="h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
           <p className="flex-1 text-sm text-foreground">
-            Server lokal Anda versi lama ({health.version ?? '?'}). Versi itu bisa menyimpan MP4 ber-codec AV1/VP9 yang{' '}
-            <b className="font-medium">tidak bisa dibuka</b> di banyak pemutar. Unduh server v{MIN_SERVER_VERSION}, hentikan server lama (Ctrl+C), lalu jalankan
-            yang baru.
+            Versi server lokal telah usang ({health.version ?? '?'}). Versi tersebut berpotensi menghasilkan MP4 ber-codec AV1/VP9 yang{' '}
+            <b className="font-medium">tidak kompatibel</b> pada sebagian pemutar media. Unduh server v{MIN_SERVER_VERSION}, hentikan proses lama (Ctrl+C), lalu jalankan versi terbaru.
           </p>
           <button
             type="button"
@@ -431,16 +430,16 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
                 </button>
               </div>
               {!hasFfmpeg && format === 'mp4' && (
-                <p className="text-xs text-muted-foreground">Tanpa ffmpeg, YouTube umumnya hanya menyediakan file gabungan hingga 360p–720p.</p>
+                <p className="text-xs text-muted-foreground">Tanpa ffmpeg, YouTube umumnya hanya menyediakan berkas gabungan hingga resolusi 360p–720p.</p>
               )}
             </form>
 
             <label className="mt-5 flex cursor-pointer items-center justify-between gap-4 border-t border-border pt-4">
               <span className="text-sm">
-                <span className="font-medium text-foreground">Pakai mesin lokal untuk tombol “Unduh video”</span>
-                <span className="block text-muted-foreground">Menu ⋮ di kartu video & tombol Unduh di pratinjau langsung menyimpan ke perangkat.</span>
+                <span className="font-medium text-foreground">Gunakan layanan lokal untuk aksi “Unduh video”</span>
+                <span className="block text-muted-foreground">Menu tindakan pada kartu video dan tombol Unduh pada pratinjau akan langsung menyimpan berkas ke perangkat lokal.</span>
               </span>
-              <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Pakai mesin lokal" />
+              <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Gunakan layanan lokal" />
             </label>
           </div>
 
@@ -460,7 +459,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
       )}
 
       {!ready && (
-        <SectionCard title="Pasang mesin lokal (sekali saja)" description="Butuh Node.js 18+ dan yt-dlp. ffmpeg disarankan untuk MP3 & resolusi tinggi.">
+        <SectionCard title="Pemasangan layanan lokal (satu kali)" description="Memerlukan Node.js 18+ dan yt-dlp. Pemasangan ffmpeg disarankan untuk format MP3 dan resolusi tinggi.">
           <ol className="space-y-5 text-sm">
             <li>
               <p className="font-medium text-foreground">1. Pasang yt-dlp, ffmpeg, dan Node.js</p>
@@ -471,9 +470,9 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               </div>
             </li>
             <li>
-              <p className="font-medium text-foreground">2. Unduh server penghubung</p>
+              <p className="font-medium text-foreground">2. Unduh berkas server penghubung</p>
               <p className="mt-1 text-muted-foreground">
-                Satu file kecil tanpa dependensi. Atau, dari folder repo ini jalankan <code className="font-mono">npm run downloader</code>.
+                Satu berkas mandiri tanpa dependensi eksternal. Sebagai alternatif, jalankan <code className="font-mono">npm run downloader</code> dari direktori repositori.
               </p>
               <button
                 type="button"
@@ -484,19 +483,19 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
               </button>
             </li>
             <li>
-              <p className="font-medium text-foreground">3. Jalankan, lalu klik “Cek ulang”</p>
+              <p className="font-medium text-foreground">3. Jalankan server, lalu pilih “Periksa ulang”</p>
               <div className="mt-2">
                 <CodeLine cmd={`node ${SERVER_FILENAME}`} onToast={onToast} />
               </div>
               <p className="mt-2 text-muted-foreground">
-                Bila browser meminta izin <b className="font-medium text-foreground">akses jaringan lokal</b>, pilih Izinkan.
-                Safari memblokir koneksi loopback dari situs HTTPS — gunakan browser berbasis Chromium atau Firefox.
+                Apabila browser menampilkan permintaan izin <b className="font-medium text-foreground">akses jaringan lokal</b>, pilih Izinkan.
+                Safari membatasi koneksi loopback dari situs HTTPS — gunakan browser berbasis Chromium atau Firefox.
               </p>
             </li>
           </ol>
           <p className="mt-4 flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-            <span>Privasi: server lokal hanya mendengarkan alamat loopback <code className="font-mono">127.0.0.1</code> di perangkat Anda dan tidak mengirim data ke server eksternal.</span>
+            <span>Privasi: server lokal hanya mendengarkan alamat loopback <code className="font-mono">127.0.0.1</code> pada perangkat lokal dan tidak mengirimkan data ke server eksternal.</span>
           </p>
         </SectionCard>
       )}
@@ -523,7 +522,7 @@ const LocalTab: React.FC<{ onToast: ShowToast }> = ({ onToast }) => {
           </button>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Ubah bila server dijalankan dengan <code className="font-mono">PORT=…</code>. Folder tujuan diatur lewat <code className="font-mono">DOWNLOAD_DIR=…</code>.
+          Sesuaikan apabila server dijalankan dengan <code className="font-mono">PORT=…</code>. Direktori tujuan diatur melalui <code className="font-mono">DOWNLOAD_DIR=…</code>.
         </p>
       </details>
     </div>
@@ -609,7 +608,7 @@ const DownloaderPage: React.FC<DownloaderPageProps> = ({ onToast }) => {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Video Downloader" subtitle="Unduh video & audio langsung ke perangkat ini memakai yt-dlp, atau lewat layanan online." />
+      <PageHeader title="Video Downloader" subtitle="Unduh video dan audio langsung ke perangkat lokal melalui yt-dlp atau layanan online." />
       <StudioTabs<Tab>
         tabs={[
           { id: 'local', label: 'Perangkat ini' },
@@ -623,7 +622,7 @@ const DownloaderPage: React.FC<DownloaderPageProps> = ({ onToast }) => {
       {tab === 'local' ? <LocalTab onToast={onToast} /> : <OnlineTab onToast={onToast} />}
       <p className="mt-6 flex gap-2 text-xs leading-5 text-muted-foreground">
         <Globe className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        Unduh hanya untuk penggunaan pribadi dan hormati hak cipta kreator serta Ketentuan Layanan YouTube.
+        Pengunduhan hanya diperuntukkan bagi penggunaan pribadi dengan menghormati hak cipta kreator serta Ketentuan Layanan YouTube.
       </p>
     </div>
   );

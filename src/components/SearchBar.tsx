@@ -142,7 +142,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const activeOptionId = showDropdown && highlight >= 0 ? `${listboxId}-opt-${highlight}` : undefined;
 
   return (
-    <div ref={wrapperRef} className="relative flex w-full items-center gap-2">
+    <div ref={wrapperRef} className="relative flex w-full items-center gap-2 sm:gap-3">
       {onBack && (
         <button type="button" onClick={onBack} className="yt-icon-btn" aria-label="Kembali">
           <ArrowLeft className="h-5 w-5" strokeWidth={1.75} />
@@ -159,11 +159,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
       >
         <div
           className={cn(
-            'flex flex-1 items-center rounded-l-full border bg-background pl-4 pr-1 transition-colors',
+            'flex flex-1 items-center rounded-l-full border bg-background pl-4 pr-1 transition-colors dark:bg-[#121212]',
             focused ? 'border-primary shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)]' : 'border-input'
           )}
         >
-          {focused && <Search className="mr-2.5 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" strokeWidth={1.75} aria-hidden="true" />}
+          {focused && <Search className="mr-3 hidden h-4 w-4 shrink-0 text-foreground sm:block" strokeWidth={1.75} aria-hidden="true" />}
           <input
             ref={ref}
             type="search"
@@ -171,13 +171,13 @@ const SearchBar: React.FC<SearchBarProps> = ({
             enterKeyHint="search"
             autoComplete="off"
             spellCheck={false}
-            aria-label="Cari channel, @handle, URL, atau topik"
+            aria-label="Telusuri channel, @handle, URL, atau kata kunci"
             aria-expanded={showDropdown}
             aria-controls={listboxId}
             aria-autocomplete="list"
             aria-activedescendant={activeOptionId}
-            className="h-full w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground sm:text-[15px] [&::-webkit-search-cancel-button]:hidden"
-            placeholder="Cari channel, @handle, URL, atau topik"
+            className="h-full w-full min-w-0 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+            placeholder="Telusuri channel, @handle, URL, atau kata kunci"
             value={query}
             onChange={e => {
               setQuery(e.target.value);
@@ -201,23 +201,23 @@ const SearchBar: React.FC<SearchBarProps> = ({
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-secondary"
               aria-label="Hapus teks pencarian"
             >
-              <X className="h-4 w-4" strokeWidth={1.75} />
+              <X className="h-5 w-5" strokeWidth={1.75} />
             </button>
           )}
         </div>
         <button
           type="submit"
-          className="flex w-14 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-input bg-secondary/80 transition-colors hover:bg-accent"
+          className="flex w-16 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-input bg-[#f8f8f8] transition-colors hover:bg-accent dark:bg-[#222222] dark:hover:bg-[#303030]"
           aria-label="Analisis"
           title="Analisis"
         >
-          <Search className="h-4 w-4" strokeWidth={1.9} />
+          <Search className="h-5 w-5" strokeWidth={1.75} />
         </button>
 
         {showDropdown && (
           <ul
             id={listboxId}
-            className="absolute left-0 right-0 top-[calc(100%+6px)] z-[200] overflow-hidden rounded-xl border border-border bg-popover py-2 shadow-popover"
+            className="absolute left-0 right-16 top-[calc(100%+4px)] z-[200] overflow-hidden rounded-xl border border-border bg-popover py-2 shadow-popover"
             role="listbox"
             aria-label="Saran dan riwayat pencarian"
           >
@@ -237,7 +237,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                   aria-selected={highlight === idx}
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => submit(it.value)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-1.5 text-sm"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3.5 py-1.5 text-[15px]"
                 >
                   {it.kind === 'history' ? (
                     <History className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
@@ -273,11 +273,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-input bg-secondary/70 px-3 text-xs font-medium tabular-nums text-foreground transition-colors hover:bg-accent"
-              aria-label={`Batas ambil data: ${fetchLimit.toLocaleString('id-ID')} video`}
-              title="Jumlah maksimal video yang diambil saat analisis"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium tabular-nums text-foreground transition-colors hover:bg-accent"
+              aria-label={`Batas pengambilan data: ${fetchLimit.toLocaleString('id-ID')} video`}
+              title="Batas jumlah video yang diambil saat analisis"
             >
-              <Layers className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.8} aria-hidden="true" />
+              <Layers className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
               <span>{fetchLimit.toLocaleString('id-ID')}</span>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
             </button>

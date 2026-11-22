@@ -39,7 +39,7 @@ const scheduleHtml = (sc: ReportSchedule) => {
               sl => `<li><span class="dot ${good ? 'up' : 'down'}">${good ? '▲' : '▼'}</span><div><b>${esc(sl.day)}, ${esc(sl.time)}</b><div class="sub">${sl.uploads} upload • median ${formatNumber(sl.medianViews)} views • <span class="conf ${sl.confidence}">${sl.confidence}</span></div></div><b class="pv">${perf(sl.performance)}</b></li>`
             )
             .join('')}</ol>`
-        : '<p class="sub">Data belum cukup — butuh minimal 2 upload per blok 3 jam.</p>'
+        : '<p class="sub">Data belum mencukupi — diperlukan minimal 2 unggahan per blok 3 jam.</p>'
     }</div>`;
   const kpi = (label: string, value: string, hint: string) => `<div class="kpi"><span>${esc(label)}</span><b class="blue">${esc(value)}</b><small>${esc(hint)}</small></div>`;
 
@@ -103,7 +103,7 @@ export const buildHtml = (report: Report, thumbs: Map<string, ThumbImage> | null
 <style>
 :root{--bg:#fff;--fg:#0f0f0f;--muted:#606060;--line:#e5e5e5;--chip:#f2f2f2;--red:#cc0000;--outlier:#0d9488;--blue:#065fd4}
 @media (prefers-color-scheme:dark){:root{--bg:#0f0f0f;--fg:#f1f1f1;--muted:#aaa;--line:#333;--chip:#272727;--outlier:#2dd4bf;--blue:#3ea6ff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Roboto,Arial,sans-serif}
 .wrap{max-width:1200px;margin:0 auto;padding:32px 24px 64px}
 header{display:flex;gap:20px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:24px}
 .logo{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;color:var(--muted);margin-bottom:6px}

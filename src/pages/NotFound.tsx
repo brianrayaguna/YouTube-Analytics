@@ -10,7 +10,7 @@ const NotFound = () => (
     </svg>
     <h1 className="mt-6 text-2xl font-bold text-foreground">Halaman tidak ditemukan</h1>
     <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-      Alamat yang Anda buka tidak tersedia. Kembali ke beranda untuk memulai analisis channel.
+      Alamat yang dituju tidak tersedia. Kembali ke beranda untuk memulai analisis channel.
     </p>
     <div className="mt-6">
       <Link to="/" className="yt-pill-primary">

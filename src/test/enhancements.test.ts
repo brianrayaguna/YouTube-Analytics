@@ -3,6 +3,7 @@ import { createDemoChannelData } from '../data/demoChannel';
 import { analyzeSchedule } from '../lib/schedule';
 import { calculateAllVideoScores } from '../services/performanceScoreService';
 import { estimateQuotaCost, getQuotaUsage, isAbortError, markOutliers, validateApiKey } from '../services/youtubeService';
+import { runExport } from '../services/export';
 import { TRENDING_REGIONS } from '../config/regions';
 
 describe('demo channel dataset', () => {
@@ -99,5 +100,75 @@ describe('shared regions configuration', () => {
   it('exports the full 14 trending regions list', () => {
     expect(TRENDING_REGIONS.length).toBe(14);
     expect(TRENDING_REGIONS.some(r => r.code === 'ID')).toBe(true);
+  });
+});
+
+describe('unified thumbnail ZIP export', () => {
+  const originalFetch = globalThis.fetch;
+  const originalSaveAs = window.saveAs;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    window.saveAs = originalSaveAs;
+    vi.restoreAllMocks();
+  });
+
+  it('packages thumbnails directly into a _thumbnail.zip archive via runExport', async () => {
+    const fakeJpeg = new Uint8Array(2048).fill(0xff);
+    globalThis.fetch = vi.fn().mockImplementation(async () => new Response(fakeJpeg, { status: 200, headers: { 'Content-Type': 'image/jpeg' } }));
+
+    let savedBlob: Blob | null = null;
+    let savedName = '';
+    window.saveAs = (blob: Blob, name: string) => {
+      savedBlob = blob;
+      savedName = name;
+    };
+
+    const demo = createDemoChannelData(Date.UTC(2026, 9, 5, 12, 0, 0));
+    const subset = demo.videos.slice(0, 2);
+    const result = await runExport({
+      format: 'zip',
+      zipKind: 'thumbnails',
+      zipThumbnailSize: 'maxres',
+      videos: subset,
+      context: { title: 'Nusa Tech Lab', source: 'channel', generatedAt: new Date(Date.UTC(2026, 9, 5)) },
+      fileName: 'Nusa_Tech_Lab_2026-10-05',
+      includeThumbnails: true,
+    });
+
+    expect(result.fileName).toBe('Nusa_Tech_Lab_2026-10-05_thumbnail.zip');
+    expect(result.thumbnailsEmbedded).toBe(2);
+    expect(savedName).toBe('Nusa_Tech_Lab_2026-10-05_thumbnail.zip');
+    expect(savedBlob).not.toBeNull();
+
+    const { default: JSZip } = await import('jszip');
+    const zipBytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(savedBlob!);
+    });
+    const parsed = await JSZip.loadAsync(zipBytes);
+    const jpgEntries = Object.keys(parsed.files).filter(name => name.endsWith('.jpg'));
+    expect(jpgEntries).toHaveLength(2);
+    expect(jpgEntries[0]).toContain(`[${subset[0].id}].jpg`);
+    expect(jpgEntries[1]).toContain(`[${subset[1].id}].jpg`);
+  });
+
+  it('aborts cleanly when signal is already cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const demo = createDemoChannelData(Date.UTC(2026, 9, 5, 12, 0, 0));
+    await expect(
+      runExport({
+        format: 'zip',
+        zipKind: 'thumbnails',
+        videos: demo.videos.slice(0, 1),
+        context: { title: 'Nusa Tech Lab', source: 'channel', generatedAt: new Date(Date.UTC(2026, 9, 5)) },
+        fileName: 'Nusa_Tech_Lab',
+        includeThumbnails: true,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow(/dibatalkan/i);
   });
 });

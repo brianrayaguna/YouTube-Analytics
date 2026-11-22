@@ -24,8 +24,10 @@ interface VideoCardProps {
   selectable?: boolean;
   isSelected?: boolean;
   onSelect?: (videoId: string) => void;
-  /** Tampilan Shorts (thumbnail vertikal) */
+  /** Tampilan Shorts (thumbnail vertikal 9:16) */
   shortsLayout?: boolean;
+  /** Sembunyikan avatar berulang pada halaman channel tunggal */
+  hideAvatar?: boolean;
 }
 
 const AVATAR_COLORS = ['#c2185b', '#7b1fa2', '#303f9f', '#0288d1', '#00796b', '#689f38', '#f57c00', '#5d4037', '#455a64', '#e64a19'];
@@ -77,6 +79,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
   isSelected = false,
   onSelect,
   shortsLayout = false,
+  hideAvatar = false,
 }) => {
   const [imgError, setImgError] = useState(false);
   const url = `https://www.youtube.com/watch?v=${video.id}`;
@@ -90,9 +93,9 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const handleCopy = async () => {
     try {
       await copyToClipboard(url);
-      onToast('Link disalin ke papan klip', 'success');
+      onToast('Tautan disalin ke papan klip', 'success');
     } catch {
-      onToast('Gagal menyalin link', 'error');
+      onToast('Gagal menyalin tautan', 'error');
     }
   };
 
@@ -100,16 +103,16 @@ const VideoCard: React.FC<VideoCardProps> = ({
     onToast('Mengunduh thumbnail…', 'loading');
     try {
       await downloadThumbnail(video, `${index + 1}. `);
-      onToast('Thumbnail diunduh', 'success');
+      onToast('Thumbnail berhasil diunduh', 'success');
     } catch {
       window.open(video.thumbnail, '_blank', 'noopener,noreferrer');
-      onToast('Unduhan langsung diblokir — thumbnail dibuka di tab baru', 'info');
+      onToast('Unduhan langsung diblokir browser — thumbnail dibuka pada tab baru', 'info');
     }
   };
 
   const handleSave = () => {
     onSaveToggle?.(video);
-    onToast(isSaved ? 'Dihapus dari Tersimpan' : 'Disimpan ke Tersimpan', 'success');
+    onToast(isSaved ? 'Dihapus dari koleksi Tersimpan' : 'Disimpan ke koleksi Tersimpan', 'success');
   };
 
   const menu = (
@@ -117,7 +120,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-foreground opacity-100 transition-opacity hover:bg-secondary data-[state=open]:opacity-100 sm:h-9 sm:w-9 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-foreground opacity-100 transition-opacity hover:bg-secondary data-[state=open]:opacity-100 sm:h-9 sm:w-9"
           aria-label={`Menu tindakan untuk ${video.title}`}
         >
           <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
@@ -133,13 +136,13 @@ const VideoCard: React.FC<VideoCardProps> = ({
         </DropdownMenuItem>
         <DropdownMenuSeparator className="my-1.5" />
         <DropdownMenuItem className="h-10 gap-3.5 rounded-none px-4 text-sm sm:h-9" onSelect={handleCopy}>
-          <Link2 className="h-4 w-4" strokeWidth={1.75} /> Salin link
+          <Link2 className="h-4 w-4" strokeWidth={1.75} /> Salin tautan
         </DropdownMenuItem>
         <DropdownMenuItem className="h-10 gap-3.5 rounded-none px-4 text-sm sm:h-9" onSelect={handleThumb}>
           <ImageDown className="h-4 w-4" strokeWidth={1.75} /> Unduh thumbnail
         </DropdownMenuItem>
         <DropdownMenuItem className="h-10 gap-3.5 rounded-none px-4 text-sm sm:h-9" onSelect={() => downloadVideo(video.id, video.title, onToast)}>
-          <Download className="h-4 w-4" strokeWidth={1.75} /> {isLocalDownloaderEnabled() ? 'Unduh ke perangkat' : 'Unduh video (online)'}
+          <Download className="h-4 w-4" strokeWidth={1.75} /> {isLocalDownloaderEnabled() ? 'Unduh ke perangkat' : 'Unduh melalui layanan online'}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="h-10 gap-3.5 rounded-none px-4 text-sm sm:h-9"
@@ -162,7 +165,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
       <button
         type="button"
         onClick={handleOpen}
-        aria-label={selectable ? `${isSelected ? 'Batal pilih' : 'Pilih'} ${video.title}` : `Putar pratinjau ${video.title}`}
+        aria-label={selectable ? `${isSelected ? 'Batalkan pilihan' : 'Pilih'} ${video.title}` : `Putar pratinjau ${video.title}`}
         className="block h-full w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
         {!imgError ? (
@@ -182,7 +185,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
         )}
 
         {!shortsLayout && video.durationSec > 0 && (
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
+          <span className="absolute bottom-2 right-2 rounded-[4px] bg-black/75 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white backdrop-blur-[2px]">
             {video.durationFormatted}
           </span>
         )}
@@ -208,7 +211,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
           title={isSaved ? 'Hapus dari Tersimpan' : 'Simpan'}
           aria-label={isSaved ? `Hapus ${video.title} dari Tersimpan` : `Simpan ${video.title}`}
           className={cn(
-            'absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg bg-black/80 text-white transition-opacity sm:h-8 sm:w-8',
+            'absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg bg-black/75 text-white backdrop-blur-[2px] transition-opacity sm:h-8 sm:w-8',
             isSaved ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100'
           )}
         >
@@ -221,8 +224,8 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const badges = (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
       {video.likesHidden ? (
-        <span className="rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-muted-foreground" title="Kreator menyembunyikan jumlah like">
-          Like disembunyikan
+        <span className="rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-muted-foreground" title="Jumlah suka disembunyikan oleh kreator">
+          Suka disembunyikan
         </span>
       ) : (
         <span
@@ -230,7 +233,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
             'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums',
             video.engagementRate >= 5 ? 'bg-success/15 text-success' : 'bg-secondary text-muted-foreground'
           )}
-          title="Engagement rate = (likes + komentar) / views"
+          title="Rasio interaksi = (suka + komentar) / tayangan"
         >
           ER {video.engagementRate}%
         </span>
@@ -238,7 +241,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
       {video.isOutlier && (
         <span
           className="rounded bg-outlier/15 px-1.5 py-0.5 text-xs font-medium tabular-nums text-outlier"
-          title="Views ≥ 3× median daftar"
+          title="Tayangan ≥ 3× median daftar"
         >
           {video.outlierRatio ? `Outlier ${video.outlierRatio.toLocaleString('id-ID')}×` : 'Outlier'}
         </span>
@@ -250,12 +253,12 @@ const VideoCard: React.FC<VideoCardProps> = ({
   );
 
   const titleButton = (
-    <h3 className="text-[15px] font-medium leading-[21px] text-foreground">
+    <h3 className="text-[16px] font-medium leading-[22px] text-foreground">
       <button
         type="button"
         onClick={handleOpen}
         title={video.title}
-        className="line-clamp-2 w-full text-left transition-colors hover:text-primary"
+        className="line-clamp-2 w-full text-left"
       >
         {video.title}
       </button>
@@ -266,9 +269,9 @@ const VideoCard: React.FC<VideoCardProps> = ({
     return (
       <article className={cn('group flex flex-col', !isAboveFold && 'deferred-card')}>
         {thumbnail}
-        <div className="relative mt-2 pr-8">
+        <div className="relative mt-2.5 pr-8">
           {titleButton}
-          <p className="mt-0.5 text-xs tabular-nums text-muted-foreground sm:text-sm">{video.views} x ditonton</p>
+          <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">{video.views} tayangan</p>
           {badges}
           <div className="absolute -right-2 -top-1">{menu}</div>
         </div>
@@ -280,15 +283,19 @@ const VideoCard: React.FC<VideoCardProps> = ({
     <article className={cn('group flex flex-col', !isAboveFold && 'deferred-card')}>
       {thumbnail}
       <div className="mt-3 flex gap-3">
-        <ChannelAvatar name={video.channelTitle} />
+        {!hideAvatar && <ChannelAvatar name={video.channelTitle} />}
         <div className="relative min-w-0 flex-1 pr-8">
           {titleButton}
-          <p className="mt-1 truncate text-xs text-muted-foreground sm:text-sm" title={video.channelTitle}>
-            {video.channelTitle}
-          </p>
-          <p className="text-xs tabular-nums text-muted-foreground sm:text-sm">
-            {video.views} x ditonton <span aria-hidden="true">•</span>{' '}
-            <time dateTime={video.publishedAt} title={`Diupload ${formatDateTimeLong(video.publishedAt)}`}>
+          {!hideAvatar && (
+            <p className="mt-1 truncate text-sm text-muted-foreground" title={video.channelTitle}>
+              {video.channelTitle}
+            </p>
+          )}
+          <p className={cn('flex flex-wrap items-center gap-x-1 text-sm tabular-nums text-muted-foreground', hideAvatar && 'mt-1')}>
+            <Play className="h-3 w-3 shrink-0" strokeWidth={1.8} aria-hidden="true" />
+            <span>{video.views}</span>
+            <span aria-hidden="true">•</span>
+            <time dateTime={video.publishedAt} title={`Diunggah ${formatDateTimeLong(video.publishedAt)}`}>
               {video.publishedTimeAgo}
             </time>
           </p>

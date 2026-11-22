@@ -252,7 +252,7 @@ const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPrevi
                 </div>
                 <p className="mt-3 text-base font-medium leading-6 text-foreground">{selected.title}</p>
                 <p className="mt-1 text-sm tabular-nums text-muted-foreground">
-                  {selected.views} x ditonton • {selected.likesHidden ? 'Like disembunyikan' : `${selected.likes} likes • ER ${selected.engagementRate}%`}
+                  {selected.views} tayangan • {selected.likesHidden ? 'Suka disembunyikan' : `${selected.likes} suka • ER ${selected.engagementRate}%`}
                 </p>
 
                 <div className="mt-4 flex items-center gap-4">
@@ -307,7 +307,7 @@ const TitleScoreAnalyzer: React.FC<TitleScoreAnalyzerProps> = ({ videos, onPrevi
 
                 {tab === 'title' && textAnalysis && (
                   <div className="mt-6">
-                    <p className="text-sm font-medium text-foreground">Cek teks judul ({textAnalysis.totalScore}/100)</p>
+                    <p className="text-sm font-medium text-foreground">Evaluasi teks judul ({textAnalysis.totalScore}/100)</p>
                     <ul className="mt-2 divide-y divide-border rounded-xl border border-border text-sm">
                       {textAnalysis.checks.map(ch => (
                         <li key={ch.key} className="flex items-start gap-3 px-3 py-2.5">

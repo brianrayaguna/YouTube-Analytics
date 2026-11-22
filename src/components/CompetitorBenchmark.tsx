@@ -80,7 +80,7 @@ const CompetitorBenchmark: React.FC<BenchmarkProps> = ({ apiKey, onRequireApiKey
   const handleCompare = async () => {
     if (!apiKey) {
       onRequireApiKey();
-      setError('Atur API Key terlebih dahulu.');
+      setError('Diperlukan konfigurasi kunci API terlebih dahulu.');
       return;
     }
     if (!queryA.trim() || !queryB.trim()) {

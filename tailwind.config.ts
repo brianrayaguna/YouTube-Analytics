@@ -15,7 +15,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['"IBM Plex Sans"', "system-ui", "-apple-system", "sans-serif"],
+        sans: ['"Roboto"', "Arial", "system-ui", "-apple-system", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
